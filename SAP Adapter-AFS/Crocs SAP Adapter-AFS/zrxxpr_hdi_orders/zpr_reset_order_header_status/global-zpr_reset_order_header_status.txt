@@ -1,6 +1,0 @@
-FUNCTION-POOL ZPR_RESET_ORDER_STATUS.       "MESSAGE-ID ..
-
-* INCLUDE LZPR_RESET_ORDER_STATUSD...        " Local class definition
-
-----------------------------------------------------------------------------------
-Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740
