@@ -1,0 +1,58 @@
+*&---------------------------------------------------------------------*
+*& Module pool       SAPMZXZZPR_KATALOG_MAINTAIN                       *
+*&                                                                     *
+*&---------------------------------------------------------------------*
+*&                                                                     *
+*&                                                                     *
+*&---------------------------------------------------------------------*
+
+
+INCLUDE MZXZZPR_KATALOG_MAINTAINTOP             .                      "
+
+* INCLUDE MZXZZPR_KATALOG_MAINTAINO01             .                    *
+* INCLUDE MZXZZPR_KATALOG_MAINTAINI01             .                    *
+* INCLUDE MZXZZPR_KATALOG_MAINTAINF01             .                    *
+
+* Includes inserted by Screen Painter Wizard. DO NOT CHANGE THIS LINE!
+INCLUDE MZXZZPR_KATALOG_MAINTAINO01 .
+INCLUDE MZXZZPR_KATALOG_MAINTAINI01 .
+INCLUDE MZXZZPR_KATALOG_MAINTAINF01 .
+
+*GUI Texts
+*----------------------------------------------------------
+* TITLE_0050 --> Catalog: Restrict list by Technical Website
+* TITLE_0100 --> Catalog: Overview
+* TITLE_0200 --> Catalog: Maintain Individual Details
+
+*Text elements
+*----------------------------------------------------------
+* B01 Yes
+* B02 No
+* PB1 Create Text
+* PB2 Change Text
+* Q01 Data will be lost. Proceed?
+* Q02 Catalog will be deleted. Proceed?
+* T01 Confirm possible dataloss
+* T02 Confirm Catalog Deletion
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: L1
+*256   No changes made; therefore saving not required
+*
+* Message class: OO
+*370   Error inserting or changing. No changes made.
+*
+* Message class: ZPLUMRIVER
+*011   Technical site &1 is not a valid entry.
+*102   Deletion of database record failed.  Please restart and confirm.
+*103   Local entry was not deleted from &1.  Please inform system administrator.
+*200   Please first select a table control line.
+*201   Not currently supported.  Please use COPY or CREATE functions.
+*202   Catalog &1 / &2 / &3 already exists.  Create a different one.
+*205   Field '&1' is required when '&2' is active.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

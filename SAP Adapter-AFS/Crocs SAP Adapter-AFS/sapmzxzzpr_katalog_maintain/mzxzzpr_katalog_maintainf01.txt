@@ -1,0 +1,699 @@
+***INCLUDE MZXZZPR_KATALOG_MAINTAINF01 .
+*----------------------------------------------------------------------*
+*   INCLUDE TABLECONTROL_FORMS                                         *
+*----------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*&      Form  USER_OK_TC                                               *
+*&---------------------------------------------------------------------*
+ FORM USER_OK_TC USING    P_TC_NAME TYPE DYNFNAM
+                          P_TABLE_NAME
+                          P_MARK_NAME
+                 CHANGING P_OK      LIKE SY-UCOMM.
+
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+   DATA: L_OK              TYPE SY-UCOMM,
+         L_OFFSET          TYPE I.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+* Table control specific operations                                    *
+*   evaluate TC name and operations                                    *
+   SEARCH P_OK FOR P_TC_NAME.
+   IF SY-SUBRC = 0.
+     L_OFFSET = STRLEN( P_TC_NAME ) + 1.
+     L_OK = P_OK+L_OFFSET.
+   ELSE.
+*--- check for custom okay code
+     IF P_OK(1) <> 'Z'.
+*----- not custom
+       EXIT.
+     ELSE.
+*----- Custom Screen menu option
+       IF P_OK = 'ZDELETE'.
+         L_OK = 'DELE'.
+       ELSE.
+         L_OK = P_OK.
+       ENDIF.
+     ENDIF.
+   ENDIF.
+* execute general and TC specific operations                           *
+   CASE L_OK.
+*--- Goto to Website Selection Screen (initial screen).
+     WHEN 'ZBACK'.
+       leave to screen 50.
+       clear:  P_OK.
+*--- Create NEW CATALOG
+     WHEN 'ZNEW'.                      "new line
+       clear: gs_katalog.
+       GV_MODE = 'HM'.    "Create with key field modification
+       gs_katalog-techsite = gv_techsite.
+       gs_tmp = gs_katalog.
+       set screen '0200'.
+       leave screen.
+       CLEAR P_OK.
+*--- Change Existing CATALOG
+     WHEN 'ZCHANGE'.
+       clear: gs_katalog.
+       READ TABLE G_TC_KATALOG_ITAB assigning <itab>
+                                    with key flag = 'X'.
+       if sy-subrc = 0.
+         READ TABLE GT_KATALOG into GS_KATALOG
+                               with key techsite = <itab>-techsite
+                                        catalogx = <itab>-catalogx
+                                        localeid = <itab>-localeid
+                               binary search.
+         if sy-subrc = 0.
+           GV_MODE = 'VD'.      "Change/update with key display ONLY
+           gs_tmp = gs_katalog.
+           set screen '0200'.
+           leave screen.
+         else.
+         endif.   "sy-subrc = 0 [ON READ TABLE GT_KATALOG...]
+       endif.
+       CLEAR P_OK.
+*--- COPY CATALOG
+     WHEN 'ZCOPY'.                      "Copy
+       clear: gs_katalog.
+       GV_MODE = 'CM'.    "Copy with key field modification
+       READ TABLE G_TC_KATALOG_ITAB assigning <itab>
+                                    with key flag = 'X'.
+       if sy-subrc = 0.
+*------- uncheck line marker
+         clear: <itab>-flag.
+*------- get copy of catalog to be updated
+         READ TABLE GT_KATALOG into GS_KATALOG
+                               with key techsite = <itab>-techsite
+                                        catalogx = <itab>-catalogx
+                                        localeid = <itab>-localeid
+                               binary search.
+         clear: gs_katalog-catalogx,
+                gs_katalog-catalogtext,
+                gs_katalog-dateinserted.
+         gs_tmp = gs_katalog.
+         set screen '0200'.
+         leave screen.
+       ELSE.
+         message I200(ZPLUMRIVER).
+       ENDIF.
+       CLEAR P_OK.
+     WHEN 'INSR'.                      "insert row
+       Message I201(ZPLUMRIVER).
+*       PERFORM FCODE_INSERT_ROW USING    P_TC_NAME
+*                                         P_TABLE_NAME.
+       CLEAR P_OK.
+
+     WHEN 'DELE'.                      "delete row
+       PERFORM FCODE_DELETE_ROW USING    P_TC_NAME
+                                         P_TABLE_NAME
+                                         P_MARK_NAME.
+       CLEAR P_OK.
+
+     WHEN 'P--' OR                     "top of list
+          'P-'  OR                     "previous page
+          'P+'  OR                     "next page
+          'P++'.                       "bottom of list
+       PERFORM COMPUTE_SCROLLING_IN_TC USING P_TC_NAME
+                                             L_OK.
+       CLEAR P_OK.
+*     WHEN 'L--'.                       "total left
+*       PERFORM FCODE_TOTAL_LEFT USING P_TC_NAME.
+*
+*     WHEN 'L-'.                        "column left
+*       PERFORM FCODE_COLUMN_LEFT USING P_TC_NAME.
+*
+*     WHEN 'R+'.                        "column right
+*       PERFORM FCODE_COLUMN_RIGHT USING P_TC_NAME.
+*
+*     WHEN 'R++'.                       "total right
+*       PERFORM FCODE_TOTAL_RIGHT USING P_TC_NAME.
+*
+     WHEN 'MARK'.                      "mark all filled lines
+       PERFORM FCODE_TC_MARK_LINES USING P_TC_NAME
+                                         P_TABLE_NAME
+                                         P_MARK_NAME   .
+       CLEAR P_OK.
+
+     WHEN 'DMRK'.                      "demark all filled lines
+       PERFORM FCODE_TC_DEMARK_LINES USING P_TC_NAME
+                                           P_TABLE_NAME
+                                           P_MARK_NAME .
+       CLEAR P_OK.
+
+*     WHEN 'SASCEND'   OR
+*          'SDESCEND'.                  "sort column
+*       PERFORM FCODE_SORT_TC USING P_TC_NAME
+*                                   l_ok.
+
+   ENDCASE.
+
+ ENDFORM.                              " USER_OK_TC
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_INSERT_ROW                                         *
+*&---------------------------------------------------------------------*
+ FORM fcode_insert_row
+               USING    P_TC_NAME           TYPE DYNFNAM
+                        P_TABLE_NAME             .
+
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+   DATA L_LINES_NAME       LIKE FELD-NAME.
+   DATA L_SELLINE          LIKE SY-STEPL.
+   DATA L_LASTLINE         TYPE I.
+   DATA L_LINE             TYPE I.
+   DATA L_TABLE_NAME       LIKE FELD-NAME.
+   FIELD-SYMBOLS <TC>                 TYPE CXTAB_CONTROL.
+   FIELD-SYMBOLS <TABLE>              TYPE STANDARD TABLE.
+   FIELD-SYMBOLS <LINES>              TYPE I.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+   ASSIGN (P_TC_NAME) TO <TC>.
+
+* get the table, which belongs to the tc                               *
+   CONCATENATE P_TABLE_NAME '[]' INTO L_TABLE_NAME. "table body
+   ASSIGN (L_TABLE_NAME) TO <TABLE>.                "not headerline
+
+* get looplines of TableControl
+   CONCATENATE 'G_' P_TC_NAME '_LINES' INTO L_LINES_NAME.
+   ASSIGN (L_LINES_NAME) TO <LINES>.
+
+* get current line
+   GET CURSOR LINE L_SELLINE.
+   if sy-subrc <> 0.                   " append line to table
+     l_selline = <tc>-lines + 1.
+*&SPWIZARD: set top line and new cursor line                           *
+     if l_selline > <lines>.
+       <tc>-top_line = l_selline - <lines> + 1 .
+     else.
+       <tc>-top_line = 1.
+     endif.
+   else.                               " insert line into table
+     l_selline = <tc>-top_line + l_selline - 1.
+     l_lastline = <tc>-top_line + <lines> - 1.
+   endif.
+*&SPWIZARD: set new cursor line                                        *
+   l_line = l_selline - <tc>-top_line + 1.
+* insert initial line
+   INSERT INITIAL LINE INTO <TABLE> INDEX L_SELLINE.
+   <TC>-LINES = <TC>-LINES + 1.
+* set cursor
+   SET CURSOR LINE L_LINE.
+
+ ENDFORM.                              " FCODE_INSERT_ROW
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_DELETE_ROW                                         *
+*&---------------------------------------------------------------------*
+ FORM fcode_delete_row
+               USING    P_TC_NAME           TYPE DYNFNAM
+                        P_TABLE_NAME
+                        P_MARK_NAME   .
+
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+   DATA L_TABLE_NAME       LIKE FELD-NAME.
+
+   FIELD-SYMBOLS <TC>         TYPE cxtab_control.
+   FIELD-SYMBOLS <TABLE>      TYPE STANDARD TABLE.
+   FIELD-SYMBOLS <WA>         type t_TC_KATALOG.
+   FIELD-SYMBOLS <MARK_FIELD>.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+   ASSIGN (P_TC_NAME) TO <TC>.
+
+* get the table, which belongs to the tc                               *
+   CONCATENATE P_TABLE_NAME '[]' INTO L_TABLE_NAME. "table body
+   ASSIGN (L_TABLE_NAME) TO <TABLE>.                "not headerline
+
+* delete marked lines                                                  *
+   DESCRIBE TABLE <TABLE> LINES <TC>-LINES.
+
+   LOOP AT <TABLE> ASSIGNING <WA>.
+
+*   access to the component 'FLAG' of the table header                 *
+     ASSIGN COMPONENT P_MARK_NAME OF STRUCTURE <WA> TO <MARK_FIELD>.
+
+     IF <MARK_FIELD> = 'X'.
+*----- popup to confirm catalog record deletion
+       clear:  GV_ANSWER,
+               GV_TABIX.
+       GV_TABIX = sy-tabix.
+       CALL FUNCTION 'POPUP_TO_CONFIRM'
+         EXPORTING
+           TITLEBAR         = 'Confirm Catalog Deletion'(T02)
+           TEXT_QUESTION    = 'Catalog will be deleted. Proceed?'(Q02)
+           TEXT_BUTTON_1               = 'Yes'(B01)
+           ICON_BUTTON_1               = 'ICON_DELETE'
+           TEXT_BUTTON_2               = 'No'(B02)
+           ICON_BUTTON_2               = 'ICON_CANCEL'
+           DEFAULT_BUTTON              = '1'
+           DISPLAY_CANCEL_BUTTON       = space
+         IMPORTING
+           ANSWER                      =  GV_ANSWER
+         EXCEPTIONS
+           TEXT_NOT_FOUND              = 1
+           OTHERS                      = 2.
+       IF SY-SUBRC <> 0.
+         MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+                 WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+       ELSE.
+         IF GV_ANSWER = '1'.   "YES
+*--------- User confirmed...Continue deletion process
+           move-corresponding <WA> to GS_KATALOG. "copy before deleting
+*           DELETE <TABLE> INDEX SYST-TABIX.
+           DELETE <TABLE> INDEX GV_TABIX.
+           IF SY-SUBRC = 0.
+             GS_KATALOG-MANDT = sy-mandt.
+*----------- delete database entry
+             DELETE ZTXX_PR_KATALOG from GS_KATALOG.
+             IF sy-subrc = 0.
+*------------- delete (internal) table entry from GT_KATALOG
+               READ table gt_KATALOG assigning <katalog>
+                           with key  techsite = gs_KATALOG-techsite
+                                     catalogx = gs_KATALOG-catalogx
+                                     localeid = gs_KATALOG-localeid
+                                binary search.
+               if sy-subrc = 0.
+                 delete gt_KATALOG index sy-tabix.
+                 if sy-subrc = 0.
+*----------------- Delete text if exists
+                   PERFORM SET_TEXTKEY using GS_KATALOG
+                                    changing GS_TEXTKEY.
+                   if not GS_TEXTKEY is initial.
+                     PERFORM READ_FOR_TEXT using GS_TEXTKEY
+                                        changing GT_TLINE.
+                     IF NOT GT_TLINE[] is initial.
+                       PERFORM DELETE_TEXT using GS_TEXTKEY
+                                        changing gv_subrc.
+                       PERFORM COMMIT_TEXT using GS_TEXTKEY.
+                     endif.   "NOT GT_TLINE[] is initial
+                   endif.   "not GS_TEXTKEY is initial
+                 else.
+*----------------- entry was NOT deleted from GT_KATALOG
+                   rollback work.
+                   message E103(ZPLUMRIVER) with 'GT_KATALOG'.
+                 endif.   "sy-subrc = 0   [ON delete gt_KATALOG...]
+               endif.   "sy-subrc = 0   [ON READ table gt_KATALOG]
+*------------ Details handled (including text)...Now okay to commit work
+               commit work.
+             ELSE.
+               Rollback work.
+               message E102(zplumriver).
+             ENDIF.   "sy-subrc = 0   [ON DELETE ZTXX_PR_KATALOG]
+
+             <TC>-LINES = <TC>-LINES - 1.   "<== ONLY original line
+
+           ENDIF.
+         ELSE.
+*---------- Do nothing.
+         ENDIF.   "GV_ANSWER = '1'.   "YES
+       ENDIF.   "SY-SUBRC <> 0
+     ENDIF.
+   ENDLOOP.
+
+ ENDFORM.                              " FCODE_DELETE_ROW
+
+*&---------------------------------------------------------------------*
+*&      Form  COMPUTE_SCROLLING_IN_TC
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_TC_NAME  name of tablecontrol
+*      -->P_OK       ok code
+*----------------------------------------------------------------------*
+ FORM COMPUTE_SCROLLING_IN_TC USING    P_TC_NAME
+                                       P_OK.
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+   DATA L_TC_NEW_TOP_LINE     TYPE I.
+   DATA L_TC_NAME             LIKE FELD-NAME.
+   DATA L_TC_LINES_NAME       LIKE FELD-NAME.
+   DATA L_TC_FIELD_NAME       LIKE FELD-NAME.
+
+   FIELD-SYMBOLS <TC>         TYPE cxtab_control.
+   FIELD-SYMBOLS <LINES>      TYPE I.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+   ASSIGN (P_TC_NAME) TO <TC>.
+* get looplines of TableControl
+   CONCATENATE 'G_' P_TC_NAME '_LINES' INTO L_TC_LINES_NAME.
+   ASSIGN (L_TC_LINES_NAME) TO <LINES>.
+
+
+* is no line filled?                                                   *
+   IF <TC>-LINES = 0.
+*   yes, ...                                                           *
+     L_TC_NEW_TOP_LINE = 1.
+   ELSE.
+*   no, ...                                                            *
+     CALL FUNCTION 'SCROLLING_IN_TABLE'
+          EXPORTING
+               ENTRY_ACT             = <TC>-TOP_LINE
+               ENTRY_FROM            = 1
+               ENTRY_TO              = <TC>-LINES
+               LAST_PAGE_FULL        = 'X'
+               LOOPS                 = <LINES>
+               OK_CODE               = P_OK
+               OVERLAPPING           = 'X'
+          IMPORTING
+               ENTRY_NEW             = L_TC_NEW_TOP_LINE
+          EXCEPTIONS
+*              NO_ENTRY_OR_PAGE_ACT  = 01
+*              NO_ENTRY_TO           = 02
+*              NO_OK_CODE_OR_PAGE_GO = 03
+               OTHERS                = 0.
+   ENDIF.
+
+* get actual tc and column                                             *
+   GET CURSOR FIELD L_TC_FIELD_NAME
+              AREA  L_TC_NAME.
+
+   IF SYST-SUBRC = 0.
+     IF L_TC_NAME = P_TC_NAME.
+*     set actual column                                                *
+       SET CURSOR FIELD L_TC_FIELD_NAME LINE 1.
+     ENDIF.
+   ENDIF.
+
+* set the new top line                                                 *
+   <TC>-TOP_LINE = L_TC_NEW_TOP_LINE.
+
+
+ ENDFORM.                              " COMPUTE_SCROLLING_IN_TC
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_TC_MARK_LINES
+*&---------------------------------------------------------------------*
+*       marks all TableControl lines
+*----------------------------------------------------------------------*
+*      -->P_TC_NAME  name of tablecontrol
+*----------------------------------------------------------------------*
+FORM FCODE_TC_MARK_LINES USING P_TC_NAME
+                               P_TABLE_NAME
+                               P_MARK_NAME.
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+  DATA L_TABLE_NAME       LIKE FELD-NAME.
+
+  FIELD-SYMBOLS <TC>         TYPE cxtab_control.
+  FIELD-SYMBOLS <TABLE>      TYPE STANDARD TABLE.
+  FIELD-SYMBOLS <WA>.
+  FIELD-SYMBOLS <MARK_FIELD>.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+  ASSIGN (P_TC_NAME) TO <TC>.
+
+* get the table, which belongs to the tc                               *
+   CONCATENATE P_TABLE_NAME '[]' INTO L_TABLE_NAME. "table body
+   ASSIGN (L_TABLE_NAME) TO <TABLE>.                "not headerline
+
+* mark all filled lines                                                *
+  LOOP AT <TABLE> ASSIGNING <WA>.
+
+*   access to the component 'FLAG' of the table header                 *
+     ASSIGN COMPONENT P_MARK_NAME OF STRUCTURE <WA> TO <MARK_FIELD>.
+
+     <MARK_FIELD> = 'X'.
+  ENDLOOP.
+ENDFORM.                                          "fcode_tc_mark_lines
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_TC_DEMARK_LINES
+*&---------------------------------------------------------------------*
+*       demarks all TableControl lines
+*----------------------------------------------------------------------*
+*      -->P_TC_NAME  name of tablecontrol
+*----------------------------------------------------------------------*
+FORM FCODE_TC_DEMARK_LINES USING P_TC_NAME
+                                 P_TABLE_NAME
+                                 P_MARK_NAME .
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+  DATA L_TABLE_NAME       LIKE FELD-NAME.
+
+  FIELD-SYMBOLS <TC>         TYPE cxtab_control.
+  FIELD-SYMBOLS <TABLE>      TYPE STANDARD TABLE.
+  FIELD-SYMBOLS <WA>.
+  FIELD-SYMBOLS <MARK_FIELD>.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+  ASSIGN (P_TC_NAME) TO <TC>.
+
+* get the table, which belongs to the tc                               *
+   CONCATENATE P_TABLE_NAME '[]' INTO L_TABLE_NAME. "table body
+   ASSIGN (L_TABLE_NAME) TO <TABLE>.                "not headerline
+
+* demark all filled lines                                              *
+  LOOP AT <TABLE> ASSIGNING <WA>.
+
+*   access to the component 'FLAG' of the table header                 *
+     ASSIGN COMPONENT P_MARK_NAME OF STRUCTURE <WA> TO <MARK_FIELD>.
+
+     <MARK_FIELD> = SPACE.
+  ENDLOOP.
+ENDFORM.                                          "fcode_tc_mark_lines
+
+
+*&---------------------------------------------------------------------*
+*&      Form  SET_TEXTKEY
+*&---------------------------------------------------------------------*
+FORM SET_TEXTKEY USING    US_KATALOG like GS_KATALOG
+                 CHANGING CH_TEXTKEY like GS_TEXTKEY.
+* Description:  Set the key values for Text Lookup
+
+  clear:  CH_TEXTKEY.
+  IF NOT US_KATALOG-CATALOGTEXT is initial.
+*-- text already exists??
+    CH_TEXTKEY = US_KATALOG-CATALOGTEXT.
+  ELSE.
+    CH_TEXTKEY-TDOBJECT = 'ZPLUMRIVER'.
+*-- text name will be primary key of record
+    concatenate US_KATALOG-TECHSITE
+                US_KATALOG-CATALOGX
+                US_KATALOG-LOCALEID
+            into CH_TEXTKEY-TDNAME.
+    CH_TEXTKEY-TDID = 'CAT1'.
+*-- need language associated with locality id
+    select single spras
+        from ZTXX_PR_LOCALEID into CH_TEXTKEY-TDSPRAS
+        where localeid = US_KATALOG-LOCALEID.
+  ENDIF.   "NOT US_KATALOG-CATALOGTEXT is initial
+
+ENDFORM.                    " SET_TEXTKEY
+*&---------------------------------------------------------------------*
+*&      Form  READ_FOR_TEXT
+*&---------------------------------------------------------------------*
+FORM READ_FOR_TEXT USING    US_TEXTKEY  like GS_TEXTKEY
+                   CHANGING CHT_TLINE   like GT_TLINE.
+* DESCRIPTION:  Read for Text
+
+  REFRESH:  CHT_TLINE.
+  CALL FUNCTION 'READ_TEXT'
+    EXPORTING
+      ID                            = US_TEXTKEY-TDID
+      LANGUAGE                      = US_TEXTKEY-TDSPRAS
+      NAME                          = US_TEXTKEY-TDNAME
+      OBJECT                        = US_TEXTKEY-TDOBJECT
+    TABLES
+      LINES                         = CHT_TLINE
+    EXCEPTIONS
+      ID                            = 1
+      LANGUAGE                      = 2
+      NAME                          = 3
+      NOT_FOUND                     = 4
+      OBJECT                        = 5
+      REFERENCE_CHECK               = 6
+      WRONG_ACCESS_TO_ARCHIVE       = 7
+      OTHERS                        = 8.
+  IF SY-SUBRC <> 0.
+*-- do nothing
+*    MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*            WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+ENDFORM.                    " READ_FOR_TEXT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  MAINTAIN_TEXT
+*&---------------------------------------------------------------------*
+FORM MAINTAIN_TEXT USING    US_TEXTKEY like GS_TEXTKEY
+                   CHANGING CH_KATALOG like GS_KATALOG
+                            CHT_TLINE  like GT_TLINE
+                            CH_MODE like GV_MODE.
+* DESCRIPTION:  Maintain Catalog text.  If text exists, then change.
+*               Otherwise, create new text.
+
+*// Local Declarations
+  DATA:  LV_MODE(1),   "(U)pdate; (I)nsert new text
+         LV_TITLE TYPE TTXIT-TDTEXT.
+
+* WORK AREA AND TABLE FOR TEXT(132)
+  DATA: BEGIN OF LS_TEXTLINE,
+          LINE TYPE TLINE-TDLINE,
+        END OF LS_TEXTLINE.
+
+  DATA:  LT_TEXTLINE like standard table of LS_TEXTLINE
+                     with non-unique key line
+                     initial size 10.
+
+* SAPSCRIPT HEADER STRUCTURE
+  DATA:  LS_THEAD TYPE THEAD.
+
+* FIELD SYMBOLS
+  field-symbols:  <tline> like line of CHT_TLINE,
+                  <textline> like ls_textline.
+
+*// Begin processing
+  IF NOT CHT_TLINE[] is initial.
+*-- Text already exists, so prepare for modification.
+    lv_mode = 'U'.
+*-- Fill LT_TEXTLINE with initial values from UST_TLINE.
+    LOOP AT CHT_TLINE ASSIGNING <TLINE>.
+      LS_TEXTLINE-LINE = <TLINE>-TDLINE.
+      APPEND LS_TEXTLINE TO LT_TEXTLINE.
+    ENDLOOP.
+  ELSE.
+*-- may create new records...
+    LV_MODE = 'I'.
+  ENDIF.
+
+* CALL TEXT EDITOR
+  CLEAR:  LV_TITLE.
+  LV_TITLE = CH_KATALOG-CATALOGX.
+  CALL FUNCTION 'Z_XX_PR_TEXTEDIT'
+    EXPORTING
+      TITEL                = LV_TITLE
+      I_ROW                = 5
+      I_COLUMN             = 20
+    TABLES
+      TEXTLINES            =  LT_TEXTLINE
+    EXCEPTIONS
+      USER_CANCELLED       = 1
+      OTHERS               = 2.
+  IF SY-SUBRC = 0.
+*-- PREPARE TO SAVE TEXT...NORMAL EXIT FROM Text Editor
+    REFRESH:  CHT_TLINE.
+    LOOP AT LT_TEXTLINE ASSIGNING <TEXTLINE>.
+      CLEAR:  GS_TLINE.
+      IF SY-TABIX = 1.
+        GS_TLINE-TDFORMAT = '*'.      "DEFAULT FORMATTING
+      ENDIF.
+      GS_TLINE-TDLINE = <TEXTLINE>-LINE.
+      APPEND GS_TLINE TO CHT_TLINE.
+    ENDLOOP.
+*-- SAVE TEXT??
+    IF NOT CHT_TLINE[] is initial.
+*---- YES, save text
+      CLEAR: LS_THEAD.
+      LS_THEAD-TDOBJECT = US_TEXTKEY-TDOBJECT.
+      LS_THEAD-TDNAME = US_TEXTKEY-TDNAME.
+      LS_THEAD-TDID = US_TEXTKEY-TDID.
+      LS_THEAD-TDSPRAS = US_TEXTKEY-TDSPRAS.
+      CALL FUNCTION 'SAVE_TEXT'
+        EXPORTING
+          HEADER                = LS_THEAD
+*          INSERT                = ' '
+        TABLES
+          LINES                 =  CHT_TLINE
+        EXCEPTIONS
+          ID                    = 1
+          LANGUAGE              = 2
+          NAME                  = 3
+          OBJECT                = 4
+          OTHERS                = 5.
+      IF SY-SUBRC = 0.
+        CH_KATALOG-MANDT = sy-mandt.
+*------ maintain flags and indicators
+        gx_text = 'X'.
+        CH_KATALOG-CATALOGTEXT = US_TEXTKEY.
+        clear:  gs_tmp-CATALOGTEXT.   "<== ensures text change noticed
+*        CH_MODE+1(1) = 'D'.
+      ELSE.
+        MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+                WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+      ENDIF.
+    ELSE.
+*---- If text does not already exist, then just exit.  Otherwise
+*---- delete the current text.
+      IF LV_MODE = 'U'.
+        CALL FUNCTION 'DELETE_TEXT'
+          EXPORTING
+            ID                    = US_TEXTKEY-TDID
+            LANGUAGE              = US_TEXTKEY-TDSPRAS
+            NAME                  = US_TEXTKEY-TDNAME
+            OBJECT                = US_TEXTKEY-TDOBJECT
+          EXCEPTIONS
+            NOT_FOUND             = 1
+            OTHERS                = 2.
+        IF SY-SUBRC = 0.
+*-------- ALSO REFRESH CATALOGTEXT
+          CLEAR:  CH_KATALOG-CATALOGTEXT.
+        ELSE.
+*-------- Deletion failed... but do nothing
+        ENDIF.
+      ENDIF.   "LV_MODE = 'U'
+    ENDIF.   "NOT CHT_TLINE[] is initial
+  ELSE.
+*-- NO SAVE...  Likely, user cancelled the editing process.
+  ENDIF.   "SY-SUBRC = 0 [after EDITOR CALL]
+
+ENDFORM.                    " MAINTAIN_TEXT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  DELETE_TEXT
+*&---------------------------------------------------------------------*
+FORM DELETE_TEXT USING    US_TEXTKEY  like GS_TEXTKEY
+                 CHANGING CH_SUBRC    like GV_SUBRC.
+* DESCRIPTION: Delete Catalog Text
+
+* delete text
+  CALL FUNCTION 'DELETE_TEXT'
+    EXPORTING
+      ID                    = US_TEXTKEY-TDID
+      LANGUAGE              = US_TEXTKEY-TDSPRAS
+      NAME                  = US_TEXTKEY-TDNAME
+      OBJECT                = US_TEXTKEY-TDOBJECT
+    EXCEPTIONS
+      NOT_FOUND             = 1
+      OTHERS                = 2.
+
+* Set return code and issue error message if failed
+  CH_SUBRC = sy-subrc.
+  IF CH_SUBRC <> 0.
+    MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+            WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+ENDFORM.                    " DELETE_TEXT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  COMMIT_TEXT
+*&---------------------------------------------------------------------*
+FORM COMMIT_TEXT USING    US_TEXTKEY like GS_TEXTKEY.
+* DESCRIPTION:  Commit text... in update task
+
+  CALL FUNCTION 'COMMIT_TEXT'
+    EXPORTING
+      OBJECT                =  US_TEXTKEY-TDOBJECT
+      NAME                  =  US_TEXTKEY-TDNAME
+      ID                    =  US_TEXTKEY-TDID
+      LANGUAGE              =  US_TEXTKEY-TDSPRAS.
+
+ENDFORM.                    " COMMIT_TEXT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  DELETE_TEXT_FROM_BUFFER
+*&---------------------------------------------------------------------*
+FORM DELETE_TEXT_FROM_BUFFER USING    US_TEXTKEY  like GS_TEXTKEY.
+* Delete text changes from buffer.
+
+  CALL FUNCTION 'DELETE_TEXT_FROM_CATALOG'
+   EXPORTING
+     OBJECT           =  US_TEXTKEY-TDOBJECT
+     NAME             =  US_TEXTKEY-TDNAME
+     ID               =  US_TEXTKEY-TDID
+     LANGUAGE         =  US_TEXTKEY-TDSPRAS.
+
+ENDFORM.                    " DELETE_TEXT_FROM_BUFFER
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

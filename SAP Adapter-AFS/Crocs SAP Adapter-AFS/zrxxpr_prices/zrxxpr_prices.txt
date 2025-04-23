@@ -1,0 +1,618 @@
+*&---------------------------------------------------------------------*
+*& Report  ZRXXPR_PRICES
+*&
+*&---------------------------------------------------------------------*
+REPORT  zrxxpr_prices NO STANDARD PAGE HEADING
+                    MESSAGE-ID zplumriver.
+************************************************************************
+* Program     : ZRXXPR_PRICES - Pricing Conditions                     *
+************************************************************************
+*-----------------------------------------------------------------------
+*Modification log:
+* Change #         Date               By whom
+* Description
+* ----------------------------------------------------------------------
+
+* ----------------------------------------------------------------------
+************************************************************************
+************************************************************************
+*************    GLOBAL DECLARATIONS    ********************************
+TABLES:  mara,
+         mvke,
+         marc,
+         mard,
+         knvv,
+         vbak.
+
+TYPES: BEGIN OF t_mara,
+         matnr TYPE matnr,
+         extwg TYPE extwg,
+       END OF t_mara.
+
+* work area for technical website information
+DATA: BEGIN OF gs_techsite,
+        website    TYPE ztxx_pr_website-website,
+        pr_website TYPE ztxx_pr_website-pr_website,
+        url        TYPE ztxx_pr_website-url,
+      END OF gs_techsite.
+
+* work area for HDI table Primary key
+DATA: gs_tablekey TYPE zsxx_pr_tablekey.
+DATA: gs_xpricing TYPE ztxx_pr_xpricing.    "Pricing cond. xfer table
+
+DATA: gt_xpricing LIKE STANDARD TABLE OF gs_xpricing
+                   WITH NON-UNIQUE KEY mandt techsite vkorg
+                                       vtweg spart seq
+                   INITIAL SIZE 0.
+
+* Sales Organization
+DATA: BEGIN OF gs_tvko,
+        vkorg TYPE tvko-vkorg,
+        bukrs TYPE tvko-bukrs,
+        adrnr TYPE tvko-adrnr,
+      END OF gs_tvko.
+
+DATA:  gt_tvko LIKE STANDARD TABLE OF gs_tvko
+               WITH NON-UNIQUE KEY vkorg
+               INITIAL SIZE 5.
+
+* Distribution Channel
+DATA: BEGIN OF gs_tvtw,
+        vtweg TYPE tvtw-vtweg,
+      END OF gs_tvtw.
+
+DATA:  gt_tvtw LIKE STANDARD TABLE OF gs_tvtw
+               WITH NON-UNIQUE KEY vtweg
+               INITIAL SIZE 5.
+
+* Division
+DATA: BEGIN OF gs_tspa,
+        spart TYPE tspa-spart,
+      END OF gs_tspa.
+
+DATA:  gt_tspa LIKE STANDARD TABLE OF gs_tspa
+               WITH NON-UNIQUE KEY spart
+               INITIAL SIZE 5.
+DATA:  gt_catalog TYPE TABLE OF ztxx_pr_katalog,
+       gt_catstyl TYPE TABLE OF ztxx_pr_catstyle.
+
+DATA:  gs_catalog TYPE ztxx_pr_katalog,
+       gs_catstyl TYPE ztxx_pr_catstyle.
+
+DATA:  it_mlist TYPE TABLE OF zprxx_tmlist,
+       wa_mlist TYPE zprxx_tmlist.
+
+DATA:  it_mara TYPE TABLE OF t_mara,
+       wa_mara TYPE t_mara.
+
+* Local Fields
+DATA:  gv_vkorg        TYPE vkorg,
+       gv_vtweg        TYPE vtweg,
+       gv_spart        TYPE spart,
+       gv_seq          TYPE num10,
+       gv_date         TYPE sydatum,
+       gv_time         TYPE syuzeit,
+       gv_matnr        TYPE matnr,
+       gv_dateinserted TYPE zplumriver_dateinserted,
+       gv_subrc        TYPE sysubrc,
+       gv_tabix        TYPE sytabix.
+
+*DATA:  gv_supplied TYPE zzsupplied,
+DATA    gv_cond TYPE vdcot-o_contab.
+
+* Constants
+CONSTANTS:  gc_null        TYPE x VALUE '00',
+            gc_on(1)       TYPE n VALUE '1',
+            gc_off(1)      TYPE n VALUE '0',
+            gc_memoryid    TYPE indx-srtfd VALUE 'ZXXPR_CUSTCAT',
+            gc_localeid_en TYPE zplumriver_lid VALUE '1033', "ENGLISH
+            gc_timestart   TYPE syuzeit VALUE '000000',  "start of day
+            gc_timefinish  TYPE syuzeit VALUE '235959'. "end of day
+
+************************************************************************
+*                   Selection Screen
+************************************************************************
+* Block BLK0:  Technical Website Selection
+SELECTION-SCREEN BEGIN OF BLOCK blk0 WITH FRAME TITLE text-b00.
+PARAMETERS:  p_tsite TYPE ztxx_pr_website-website
+                     MATCHCODE OBJECT zxpr_sh_website
+                     OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK blk0.
+SELECTION-SCREEN SKIP 1.
+* Block BLK1:  General Selections
+SELECTION-SCREEN BEGIN OF BLOCK blk1 WITH FRAME TITLE text-001.
+SELECT-OPTIONS: s_extwg FOR mara-extwg,
+                s_matnr FOR mara-matnr,
+                s_vkorg FOR mvke-vkorg,
+                s_vtweg FOR mvke-vtweg,
+                s_pltyp FOR knvv-pltyp,
+                s_waerk FOR vbak-waerk.
+SELECTION-SCREEN END OF BLOCK blk1.
+* Block BLK3:  Pricing Conditions
+SELECTION-SCREEN BEGIN OF BLOCK blk3 WITH FRAME TITLE text-bk3.
+PARAMETERS:  p_vdate TYPE a000-datab DEFAULT sy-datum.
+SELECTION-SCREEN BEGIN OF LINE.
+*-- Entries for Condition type and condition table.  Expected format
+*-- for entries:  [<Condition type>,<table Number>]
+SELECTION-SCREEN COMMENT (28) ts_cond FOR FIELD s_cond.
+SELECT-OPTIONS:  s_cond FOR gv_cond
+                        NO INTERVALS.
+SELECTION-SCREEN COMMENT: 60(35) tx_cond.
+SELECTION-SCREEN END OF LINE.
+* DON'T CURRENTLY USE DOCUMENT TYPE FOR VALIDATION... MAY NEED LATER.
+*  select-options:  s_auart for VBAK-AUART.
+SELECTION-SCREEN END OF BLOCK blk3.
+*{   INSERT         TSDK905521                                        1
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-s02.
+PARAMETERS: ch_var AS CHECKBOX DEFAULT space.
+SELECTION-SCREEN END OF BLOCK b1.
+*}   INSERT
+
+
+
+************************************************************************
+***********************  Initialization  *******************************
+************************************************************************
+INITIALIZATION.
+*  TX_COND = '[FORMAT: <Type>,<table number>  (e.g. "J3AP,005")]'(T01).
+  tx_cond = 'Formatted Example:  [J3AP,005]'(t01).
+  ts_cond = 'Condition (Type,Table No.)'(s01).
+
+* initialize the condition types and condition table number combos.
+  CLEAR:  s_cond,
+          s_cond[].
+  s_cond-sign = 'I'.
+  s_cond-option = 'EQ'.
+  s_cond-low = 'XPLT,000'.
+  APPEND s_cond.
+
+************************************************************************
+*********************  AT Selection Screen  ****************************
+************************************************************************
+AT SELECTION-SCREEN ON BLOCK blk3.
+  IF NOT s_cond[] IS INITIAL.
+    LOOP AT s_cond.
+      IF s_cond-low+4(1) <> ','   OR
+         s_cond-low+5(3) CN '0123456789'.
+        MESSAGE i398(00) WITH 'Pricing Condition Entry'(020)
+                               s_cond-low
+                              'has the wrong format.'(021)
+                              ' Expected layout: CCCC,NNN'(022).
+      ENDIF.   "S_COND-LOW NA ','
+    ENDLOOP.  "AT S_COND
+  ENDIF.   "NOT S_COND[] is initial
+
+************************************************************************
+*********************  Start-of-Selection  *****************************
+************************************************************************
+START-OF-SELECTION.
+
+  PERFORM set_globals.          "set fields, work areas, etc.
+  PERFORM set_pricing.            "fill pricing tables
+
+
+************************************************************************
+*********************   END-OF-SELECTION   *****************************
+************************************************************************
+END-OF-SELECTION.
+  MESSAGE i007(zplumriver).
+
+
+************************************************************************
+**********************   SUBROUTINES   *********************************
+************************************************************************
+*&---------------------------------------------------------------------*
+*&      Form  set_globals
+*&---------------------------------------------------------------------*
+FORM set_globals .
+* set intial values for global fields and work areas
+*// Local declarations
+
+
+*// BEGIN PROCESSING
+* initialize variables and structures
+  CLEAR:  gv_tabix,
+          gv_vkorg,
+          gv_vtweg,
+          gv_spart,
+          gs_techsite,
+          gs_tablekey.
+
+* Get technical website details and set HDI table primary field.
+  SELECT SINGLE website pr_website url
+            FROM ztxx_pr_website
+            INTO gs_techsite
+            WHERE website = p_tsite.
+  IF sy-subrc = 0.
+    gs_tablekey-techsite = p_tsite.
+  ELSE.
+    MESSAGE e011(zplumriver) WITH p_tsite.
+  ENDIF.   "sy-subrc = 0  [on select single... from ZTXX_PR_WEBSITE]
+
+* Set remaining Primary key field for table updates
+* Determine Sales Organization(s)
+  SELECT  vkorg bukrs adrnr
+      FROM tvko INTO TABLE gt_tvko
+      WHERE vkorg IN s_vkorg.
+  IF sy-subrc = 0.
+    LOOP AT gt_tvko INTO gs_tvko.
+      IF sy-tabix = 1.
+        gs_tablekey-vkorg = gs_tvko-vkorg.
+      ELSE.
+        CLEAR:  gs_tablekey-vkorg.
+        EXIT.
+      ENDIF.    "sy-tabix = 1
+    ENDLOOP.   "at GT_TVKO into gs_TVKO
+  ENDIF.   " sy-subrc = 0
+* Determine Distribution Channel(s)
+  SELECT  vtweg
+      FROM tvtw INTO TABLE gt_tvtw
+      WHERE vtweg IN s_vtweg.
+  IF sy-subrc = 0.
+    LOOP AT gt_tvtw INTO gs_tvtw.
+      IF sy-tabix = 1.
+        gs_tablekey-vtweg = gs_tvtw-vtweg.
+      ELSE.
+        CLEAR:  gs_tablekey-vtweg.
+        EXIT.
+      ENDIF.    "sy-tabix = 1
+    ENDLOOP.   "at gt_tvtw into gs_tvtw
+  ENDIF.   " sy-subrc = 0
+* Determine Division(s)
+
+* assign global variables
+  gv_vkorg = gs_tablekey-vkorg.
+  gv_vtweg = gs_tablekey-vtweg.
+
+ENDFORM.                    " set_globals
+
+*&---------------------------------------------------------------------*
+*&      Form  DELETE_DB_ROWS
+*&---------------------------------------------------------------------*
+FORM delete_db_rows USING    us_tablekey LIKE gs_tablekey
+                             us_tablename TYPE c
+                    CHANGING ch_rc TYPE sysubrc.
+
+* LOCAL DECLARATION
+  DATA: lv_mandt TYPE mandt.
+
+  CLEAR:  ch_rc.
+  DELETE FROM (us_tablename)
+         WHERE techsite = us_tablekey-techsite.
+  ch_rc = sy-subrc.
+  IF ch_rc <> 0.
+*-- Did deletion fail because there is no record(s) to delete??
+*-- Check for a record... return a successful code (0) if none found
+    SELECT SINGLE mandt
+            INTO lv_mandt
+            FROM (us_tablename)
+            WHERE techsite = us_tablekey-techsite.
+    IF sy-subrc <> 0.
+*---- no records found, new records can be inserted (later)... success.
+      ch_rc = 0.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.                    " DELETE_DB_ROWS
+
+*&---------------------------------------------------------------------*
+*&      Form  set_pricing
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM set_pricing .
+
+  PERFORM fill_pricing_list.
+
+ENDFORM.                    " SET_PRICING
+
+*&---------------------------------------------------------------------*
+*&      Form  fill_pricing_list
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM fill_pricing_list.
+
+* DESCRIPTION:  Fill Pricing Condition table
+
+*// Local Declarations
+
+  DATA:  ls_pricing TYPE zpr_str_pricing_conditions.
+
+  DATA:  lt_pricing LIKE STANDARD TABLE OF ls_pricing
+                    WITH NON-UNIQUE DEFAULT KEY
+                    INITIAL SIZE 0.
+
+  DATA:  lt_pricing_tmp LIKE STANDARD TABLE OF ls_pricing
+                        WITH NON-UNIQUE DEFAULT KEY
+                        INITIAL SIZE 0.
+
+* range tables for eliminating invalid entries from pricing table
+  RANGES:  ra_matnr FOR mara-matnr,
+           ra_vkorg FOR mvke-vkorg,
+           ra_vtweg FOR mvke-vtweg.
+
+* work area for condition type and table number combination
+  DATA: BEGIN OF ls_kond,
+          kschl   TYPE t685-kschl,
+          kotabnr TYPE t682i-kotabnr,
+        END OF ls_kond.
+
+* field for division
+  DATA: lv_kschl LIKE t685-kschl.
+
+  FIELD-SYMBOLS:  <pricing> LIKE ls_pricing.
+
+*// Begin Processing
+  CLEAR:  gs_xpricing,
+          gt_xpricing[],
+          gv_seq,
+          gv_dateinserted.
+
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+
+* Get PRICE listing
+  CLEAR:  lt_pricing[].
+* return pricing list for restricted condition type list
+  LOOP AT s_cond.
+    REFRESH:  lt_pricing_tmp.
+    CLEAR:  ls_kond.
+    SPLIT s_cond-low AT ','
+                     INTO ls_kond-kschl
+                          ls_kond-kotabnr
+                     IN CHARACTER MODE.
+    IF sy-subrc = 0.
+      CALL FUNCTION 'Z_RFC_PR_PRICING_CONDITIONS'
+        EXPORTING
+*         COND_USAGE         = 'A'
+*         APPLICATIO         = 'V'
+          cond_type          = ls_kond-kschl
+          table_no           = ls_kond-kotabnr
+          valid_from         = p_vdate
+*         SALES_ORG          =
+*         DISTR_CHAN         =
+*         SALES_DOC_TYPE     =
+*         MATERIAL           =
+*         PRICE_LEVEL        =
+        TABLES
+          pricing_conditions = lt_pricing_tmp[].
+      IF NOT lt_pricing_tmp[] IS INITIAL.
+        APPEND LINES OF lt_pricing_tmp TO lt_pricing.
+      ENDIF.   "NOT LT_PRICING_TMP[] IS INITIAL
+    ELSE.
+*---- should not happen... wrong format.
+      MESSAGE e398(00) WITH 'Pricing Condition Entry'(023)
+                            s_cond-low
+                            'has the wrong format.'(024)
+                            space.
+    ENDIF.   "sy-subrc = 0  [ON SPLIT s_cond...]
+  ENDLOOP.  "AT S_COND
+*  CLEAR: gt_catalog,gt_catstyl,it_mlist.
+*  SELECT *
+*      FROM ztxx_pr_katalog
+*      INTO TABLE gt_catalog
+*      WHERE techsite = p_tsite        AND
+*            salesorg IN s_vkorg       AND
+*            distchnl IN s_vtweg       AND
+*            enabled = '1'.
+*  IF NOT gt_catalog[] IS INITIAL.
+*    SELECT * FROM ztxx_pr_catstyle INTO TABLE gt_catstyl FOR ALL ENTRIES IN gt_catalog
+*    WHERE catalogx = gt_catalog-catalogx.
+*    SELECT * FROM zprxx_tmlist INTO TABLE it_mlist.
+*  ENDIF.
+*  CLEAR ra_matnr[].
+*  IF s_matnr[] IS INITIAL.
+*    LOOP AT gt_catstyl INTO gs_catstyl.
+*      CLEAR: wa_mlist.
+*
+*      CALL FUNCTION 'CONVERSION_EXIT_MATN1_INPUT'
+*        EXPORTING
+*          input        = gs_catstyl-style
+*        IMPORTING
+*          output       = gs_catstyl-style
+*        EXCEPTIONS
+*          length_error = 1
+*          OTHERS       = 2.
+*      IF sy-subrc <> 0.
+*      ELSE.
+*        CLEAR: ra_matnr.
+*        ra_matnr-sign = 'I'.
+*        ra_matnr-option = 'EQ'.
+*        ra_matnr-low = gs_catstyl-style.
+*        APPEND ra_matnr.
+*      ENDIF.
+*    ENDLOOP.
+*  ELSE.
+*    ra_matnr[] = s_matnr[].
+*  ENDIF.
+***-- add blank sales organization entry.
+*  CLEAR: ra_vkorg[],ra_vtweg[].
+*  IF s_vkorg[] IS INITIAL.
+*    LOOP AT gt_catalog INTO gs_catalog.
+*      CLEAR: ra_vkorg,ra_vtweg.
+*      ra_vkorg-sign = 'I'.
+*      ra_vkorg-option = 'EQ'.
+*      ra_vkorg-low = gs_catalog-salesorg.
+*      APPEND ra_vkorg.
+*    ENDLOOP.
+*  ELSE.
+*    ra_vkorg[] = s_vkorg[].
+*  ENDIF.
+**  -- add blank distribution channel entry.
+*  IF s_vtweg[] IS INITIAL.
+*    LOOP AT gt_catalog INTO gs_catalog.
+*      CLEAR: ra_vtweg.
+*      ra_vtweg-sign = 'I'.
+*      ra_vtweg-option = 'EQ'.
+*      ra_vtweg-low = gs_catalog-distchnl.
+*      APPEND ra_vtweg.
+*    ENDLOOP.
+*  ELSE.
+*    ra_vtweg[] = s_vtweg[].
+*  ENDIF.
+*  CLEAR: ra_vtweg,ra_vkorg,ra_matnr.
+*  ra_vtweg-sign = 'I'.
+*  ra_vtweg-option = 'EQ'.
+*  ra_vtweg-low = space.
+*  APPEND ra_vtweg.
+*  ra_vkorg-sign = 'I'.
+*  ra_vkorg-option = 'EQ'.
+*  ra_vkorg-low = space.
+*  APPEND ra_vkorg.
+*  ra_matnr-sign = 'I'.
+*  ra_matnr-option = 'EQ'.
+*  ra_matnr-low = space.
+*  APPEND ra_matnr.
+*
+*  DELETE lt_pricing WHERE NOT vkorg IN ra_vkorg    OR
+*                          NOT vtweg IN ra_vtweg    OR
+*                          NOT matnr IN ra_matnr.
+
+  IF s_extwg IS NOT INITIAL.
+    DELETE lt_pricing WHERE zzextwg NOT IN s_extwg.
+  ENDIF.
+
+* REMOVE DUPLICATES
+  IF NOT s_pltyp[] IS INITIAL.
+    DELETE lt_pricing WHERE pltyp NOT IN s_pltyp.
+  ENDIF.
+  IF NOT s_waerk[] IS INITIAL.
+    DELETE lt_pricing WHERE waerk NOT IN s_waerk.
+  ENDIF.
+  SELECT matnr extwg FROM mara INTO TABLE it_mara FOR ALL ENTRIES IN lt_pricing
+  WHERE extwg = lt_pricing-zzextwg.
+****
+SELECT mara~matnr
+       mara~extwg
+       INTO TABLE it_mara
+       FROM  mara as mara
+       INNER JOIN mvke as mvke
+       ON mara~matnr = mvke~matnr
+       FOR ALL ENTRIES IN lt_pricing
+       WHERE  mara~extwg  = lt_pricing-zzextwg
+       and    mara~matnr  in s_matnr
+       AND    mara~extwg  in s_extwg
+       and    mvke~vkorg  in s_vkorg
+       and    mvke~vtweg  in s_vtweg.
+
+*  IF sy-subrc EQ 0.
+*    DELETE it_mara WHERE NOT matnr IN ra_matnr.
+*  ENDIF.
+  LOOP AT it_mara INTO wa_mara.
+    LOOP AT lt_pricing ASSIGNING <pricing> WHERE zzextwg = wa_mara-extwg.
+**-- VALIDATE SELECTION SCREEN CRITERIA
+
+      CLEAR: gs_xpricing.
+      gv_seq = gv_seq + 1.
+*-- set primary key
+      gs_xpricing-mandt    = sy-mandt.
+      gs_xpricing-techsite = gs_tablekey-techsite.
+      gs_xpricing-vkorg    = <pricing>-vkorg.
+      gs_xpricing-vtweg    = <pricing>-vtweg.
+      gs_xpricing-spart    = gv_spart.
+      gs_xpricing-seq      = gv_seq.
+*-- set NON-KEY fields
+      gs_xpricing-kappl    = <pricing>-kappl.
+      gs_xpricing-kschl    = <pricing>-kschl.
+      gs_xpricing-kolnr    = <pricing>-kolnr.
+      gs_xpricing-kotabnr  = <pricing>-kotabnr.
+      gs_xpricing-vkorg2   = <pricing>-vkorg.
+      gs_xpricing-vtweg2   = <pricing>-vtweg.
+      gs_xpricing-auart_sd = <pricing>-auart_sd.
+      gs_xpricing-kunnr    = <pricing>-kunnr.
+      gs_xpricing-kdgrp    = <pricing>-kdgrp.
+      gs_xpricing-matnr    =  wa_mara-matnr.                                  "<pricing>-matnr.
+      gs_xpricing-extwg    =  wa_mara-extwg.                                  "external pricing group
+      gs_xpricing-pltyp    = <pricing>-pltyp.
+      gs_xpricing-prodh1   = <pricing>-prodh1.
+      gs_xpricing-prodh2   = <pricing>-prodh2.
+      gs_xpricing-datbi    = <pricing>-datbi.
+      gs_xpricing-datab    = <pricing>-datab.
+      gs_xpricing-knumh    = <pricing>-knumh.
+      gs_xpricing-kbetr    = <pricing>-kbetr.
+      gs_xpricing-konwa    = <pricing>-konwa.
+      gs_xpricing-kpein    = <pricing>-kpein.
+      gs_xpricing-kmein    = <pricing>-kmein.
+      gs_xpricing-language = 'EN'.             "<== set to English
+      gs_xpricing-website  = gs_techsite-pr_website.
+      APPEND gs_xpricing TO gt_xpricing.
+    ENDLOOP.   "AT LT_PRICING assigning <PRICING>
+  ENDLOOP.
+* Insert PRICING CONDITION records
+
+  MODIFY ztxx_pr_xpricing FROM TABLE gt_xpricing.
+
+  IF sy-subrc = 0.
+    COMMIT WORK.
+  ELSE.
+*---- Records failed to be inserted
+    ROLLBACK WORK.
+    MESSAGE e100(zplumriver) WITH 'XPRICING'.
+  ENDIF.
+
+
+ENDFORM.                    " FILL_PRICING_LIST
+
+
+
+*&---------------------------------------------------------------------*
+*&      Form  TRANSFORM_ALPHA_OUT
+*&---------------------------------------------------------------------*
+FORM transform_alpha_out  USING    us_input
+                          CHANGING ch_output.
+* Transform field according to conversion exit ALPHA for output
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+    EXPORTING
+      input  = us_input
+    IMPORTING
+      output = ch_output.
+
+ENDFORM.                    " TRANSFORM_ALPHA_OUT
+
+*Text elements
+*----------------------------------------------------------
+* 001 Selection Criteria
+* 020 Pricing Condition Entry
+* 021 has the wrong format.
+* 022  Expected layout: CCCC,NNN
+* 023 Pricing Condition Entry
+* 024 has the wrong format.
+* B00 Website Selection Criteria
+* BK3 Pricing Restrictions
+* BKC Target Catalogs
+* S01 Condition (Type,Table No.)
+* S02 Variant Status
+* T01 Formatted Example:  [XPLT,505]
+
+
+*Selection texts
+*----------------------------------------------------------
+* CH_VAR         Enabled
+* P_TSITE         Technical Website Name
+* P_VDATE         Valid From
+* S_COND         Condition (Type,Table)
+* S_EXTWG         External Material Group
+* S_MATNR         Material
+* S_PLTYP         Price List Type
+* S_SPART         Division
+* S_VKORG         Sales Organization
+* S_VTWEG         Distribution Channel
+* S_WAERK         SD Document Currency
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: 00
+*398   & & & &
+*
+* Message class: ZPLUMRIVER
+*007   Processing Completed.
+*011   Technical site &1 is not a valid entry.
+*100   No Update.  Insertion of &1 records failed.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

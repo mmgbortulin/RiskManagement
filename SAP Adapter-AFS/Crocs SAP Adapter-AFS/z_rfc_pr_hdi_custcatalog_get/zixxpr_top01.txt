@@ -1,0 +1,45 @@
+***INCLUDE ZIXXPR_TOP01 .
+
+*******   Internal Tables & Work Areas   *******************************
+* Work area and table for technical website information
+DATA: BEGIN OF GS_TECHSITE,
+        WEBSITE TYPE ZTXX_PR_WEBSITE-WEBSITE,
+        PR_WEBSITE TYPE ZTXX_PR_WEBSITE-PR_WEBSITE,
+        URL TYPE ZTXX_PR_WEBSITE-URL,
+      END OF GS_TECHSITE.
+
+DATA:  GT_TECHSITE like standard table of GS_TECHSITE
+                   with non-unique key WEBSITE
+                   initial size 3.
+
+
+*******   Structures and Work Areas   **********************************
+* Structures for return messages
+DATA:  GS_RET1 type BAPIRET1,     "return message structure 1
+       GS_RET2 type BAPIRET2.     "extended return message 2
+
+
+**********   Global Variables   ****************************************
+* Standard RFC interface fields
+DATA:  GV_WEBSITE TYPE ZTXX_PR_WEBSITE-PR_WEBSITE,   "PlumRiver defn
+       GV_VKORG type VKORG,                "SAP Sales Org.
+       GV_VTWEG type VTWEG,                "SAP Distribution channel
+       GV_SPART type SPART,                "SAP Division
+       GV_ROWS  type SYTABIX.              "# of rows to be returned
+
+* return code
+DATA:  GV_RC type sysubrc.
+
+* message support variables
+DATA:  GV_mgtyp type SYMSGTY,
+       GV_msgid type symsgid,
+       GV_msgno type symsgno,
+       GV_msgv1 type symsgv,
+       GV_msgv2 type symsgv,
+       GV_msgv3 type symsgv,
+       GV_msgv4 type symsgv,
+       GV_txt100(100),
+       GV_txt10(10).
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

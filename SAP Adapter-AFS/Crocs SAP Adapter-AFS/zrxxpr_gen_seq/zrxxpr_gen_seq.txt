@@ -1,0 +1,137 @@
+*&---------------------------------------------------------------------*
+*& Report  ZRXXPR_GEN_SEQ
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+
+REPORT  zrxxpr_gen_seq.
+
+TYPES: BEGIN OF ty_techsite,
+        website TYPE ztxx_pr_website-website,
+        pr_website TYPE ztxx_pr_website-pr_website,
+        url TYPE ztxx_pr_website-url,
+      END OF ty_techsite.
+
+DATA: it_soldto  TYPE TABLE OF ztxx_pr_soldto,
+      it_shipto  TYPE TABLE OF ztxx_pr_shipto,
+      it_custcat TYPE TABLE OF ztxx_pr_custcat,
+      it_pcode   TYPE TABLE OF ztxx_pr_pricecod.
+
+DATA: wa_techsite TYPE ty_techsite.
+
+DATA: v_seq TYPE num10.
+
+FIELD-SYMBOLS: <fs_soldto>  TYPE ztxx_pr_soldto,
+               <fs_shipto>  TYPE ztxx_pr_shipto,
+               <fs_custcat> TYPE ztxx_pr_custcat,
+               <fs_pcode>   TYPE ztxx_pr_pricecod.
+
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-s01.
+PARAMETERS:  p_tsite TYPE ztxx_pr_website-website
+                     MATCHCODE OBJECT zxpr_sh_website
+                     OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK b1.
+
+
+START-OF-SELECTION.
+
+* Get technical website details and set HDI table primary field.
+  SELECT SINGLE website pr_website url
+            FROM ztxx_pr_website
+            INTO wa_techsite
+            WHERE website = p_tsite.
+  IF sy-subrc = 0.
+    PERFORM sub_generate_seqno.
+  ELSE.
+    MESSAGE e011(zplumriver) WITH p_tsite.
+  ENDIF.
+
+END-OF-SELECTION.
+  MESSAGE i007(zplumriver).
+*&---------------------------------------------------------------------*
+*&      Form  SUB_GENERATE_SEQNO
+*&---------------------------------------------------------------------*
+* Generate Seq no for the tables
+*----------------------------------------------------------------------*
+FORM sub_generate_seqno .
+* Sold to table
+  SELECT * FROM ztxx_pr_soldto INTO TABLE it_soldto WHERE techsite = p_tsite.
+  IF sy-subrc EQ 0.
+    CLEAR: v_seq.
+    DELETE ztxx_pr_soldto FROM TABLE it_soldto.
+    SORT it_soldto BY vkorg vtweg spart soldto.
+    LOOP AT it_soldto ASSIGNING <fs_soldto>.
+      <fs_soldto>-seq = v_seq = v_seq + 1.
+    ENDLOOP.
+    MODIFY ztxx_pr_soldto FROM TABLE it_soldto.
+    IF sy-subrc EQ 0.
+      COMMIT WORK.
+    ENDIF.
+  ENDIF.
+* Ship to table
+  SELECT * FROM ztxx_pr_shipto INTO TABLE it_shipto WHERE techsite = p_tsite.
+  IF sy-subrc EQ 0.
+    CLEAR: v_seq.
+    DELETE ztxx_pr_shipto FROM TABLE it_shipto.
+    SORT it_shipto DESCENDING BY vkorg vtweg spart
+                      ASCENDING soldto shipto.
+    LOOP AT it_shipto ASSIGNING <fs_shipto>.
+      <fs_shipto>-seq = v_seq = v_seq + 1.
+    ENDLOOP.
+    MODIFY ztxx_pr_shipto FROM TABLE it_shipto.
+    IF sy-subrc EQ 0.
+      COMMIT WORK.
+    ENDIF.
+  ENDIF.
+* Customer Catalog Table
+  SELECT * FROM ztxx_pr_custcat INTO TABLE it_custcat WHERE techsite = p_tsite.
+  IF sy-subrc EQ 0.
+    CLEAR: v_seq.
+    DELETE ztxx_pr_custcat FROM TABLE it_custcat.
+    SORT it_custcat BY vkorg vtweg spart soldto.
+    LOOP AT it_custcat ASSIGNING <fs_custcat>.
+      <fs_custcat>-seq = v_seq = v_seq + 1.
+    ENDLOOP.
+    MODIFY ztxx_pr_custcat FROM TABLE it_custcat.
+    IF sy-subrc EQ 0.
+      COMMIT WORK.
+    ENDIF.
+  ENDIF.
+* Price Code table.
+  SELECT * FROM ztxx_pr_pricecod INTO TABLE it_pcode WHERE techsite = p_tsite.
+  IF sy-subrc EQ 0.
+    CLEAR: v_seq.
+    DELETE ztxx_pr_pricecod FROM TABLE it_pcode.
+    SORT it_pcode BY vkorg vtweg spart.
+    LOOP AT it_pcode ASSIGNING <fs_pcode>.
+      <fs_pcode>-seq = v_seq = v_seq + 1.
+    ENDLOOP.
+    MODIFY ztxx_pr_pricecod FROM TABLE it_pcode.
+    IF sy-subrc EQ 0.
+      COMMIT WORK.
+    ENDIF.
+  ENDIF.
+ENDFORM.                    " SUB_GENERATE_SEQNO
+
+*Text elements
+*----------------------------------------------------------
+* S01 Website Selection Criteria
+
+
+*Selection texts
+*----------------------------------------------------------
+* P_TSITE         Technical Website Name
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: ZPLUMRIVER
+*007   Processing Completed.
+*011   Technical site &1 is not a valid entry.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

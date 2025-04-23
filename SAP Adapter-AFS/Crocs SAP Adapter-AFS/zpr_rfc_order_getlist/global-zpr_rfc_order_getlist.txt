@@ -1,0 +1,170 @@
+FUNCTION-POOL zpr_rfc_get_order.            "MESSAGE-ID ..
+
+* INCLUDE LZPR_RFC_GET_ORDERD...             " Local class definition
+TYPES: BEGIN OF typ_so_qty,
+         vbeln    TYPE vbeln,
+         bmeng    TYPE bmeng,
+         j_3anetw TYPE vbep-j_3anetw,
+       END OF typ_so_qty.
+
+TYPES: BEGIN OF typ_open_qty,
+         vbeln    TYPE vbeln,
+         qty      TYPE bmeng,
+         j_3anetw TYPE vbep-j_3anetw,
+       END OF typ_open_qty.
+
+TYPES: BEGIN OF typ_order,
+         vbeln    TYPE vbak-vbeln,
+         erdat    TYPE vbak-erdat,
+         auart    TYPE vbak-auart,
+         netwr    TYPE vbak-netwr,
+         waerk    TYPE vbak-waerk,
+         vkorg    TYPE vbak-vkorg,
+         vtweg    TYPE vbak-vtweg,
+         spart    TYPE vbak-spart,
+         audat    TYPE vbak-audat,
+         vdatu    TYPE vbak-vdatu,
+         gueen    TYPE vbak-gueen,
+         bstnk    TYPE vbak-bstnk,
+         bsark    TYPE vbak-bsark,
+         ihrez    TYPE vbak-ihrez,
+         kunnr    TYPE vbak-kunnr,
+         bname    TYPE vbak-bname,
+         cmgst    TYPE vbuk-cmgst,
+         posnr    TYPE vbep-posnr,
+         etenr    TYPE vbep-etenr,
+         bmeng    TYPE vbep-bmeng,
+         j_3anetw TYPE vbep-j_3anetw,
+         shipto   TYPE vbpa-kunnr,
+       END OF typ_order.
+
+TYPES: BEGIN OF typ_vbkd,
+         vbeln TYPE vbeln,
+         bstkd TYPE bstkd,
+       END OF typ_vbkd.
+
+TYPES: BEGIN OF typ_vbap,
+         vbeln TYPE vbeln,
+         posnr TYPE posnr,
+         kzwi1 TYPE kzwi1,
+         kzwi2 TYPE kzwi2,
+         kzwi3 TYPE kzwi3,
+         kzwi4 TYPE kzwi4,
+         kzwi5 TYPE kzwi5,
+         kzwi6 TYPE kzwi6,
+       END OF typ_vbap.
+
+DATA: BEGIN OF gs_kna1,
+        kunnr      TYPE kna1-kunnr,
+        adrnr      TYPE kna1-adrnr,
+        name       TYPE ztxx_pr_invoice-soldtoname,
+        address1   TYPE ztxx_pr_invoice-soldtoaddress1,
+        address2   TYPE ztxx_pr_invoice-soldtoaddress2,
+        address3   TYPE ztxx_pr_invoice-soldtoaddress3,
+        city       TYPE ztxx_pr_invoice-soldtocity,
+        region     TYPE ztxx_pr_invoice-soldtoregion,
+        postalcode TYPE ztxx_pr_invoice-soldtopostalcode,
+        country    TYPE ztxx_pr_invoice-soldtocountry,
+        storeno    TYPE ztxx_pr_invoice-storeno,
+      END OF gs_kna1.
+
+
+CONSTANTS: gc_timestart  TYPE syuzeit VALUE '000000',  "start of day
+           gc_timefinish TYPE syuzeit VALUE '235959'. "end of day
+
+DATA: gt_open_qty TYPE TABLE OF typ_open_qty,
+      gt_order    TYPE TABLE OF typ_order,
+      gt_vbkd     TYPE TABLE OF typ_vbkd.
+
+DATA: "gs_order_header_out            type /afs/bapisdhd1,
+  gs_order_headerstatus_out TYPE /afs/bapisdhdst,
+  gs_return                 TYPE bapiret2,
+  gs_sales_documents        TYPE sales_key,
+*      gs_order_items_out             type /afs/bapisditem,
+  gs_order_schedules_out    TYPE /afs/bapisdschd1,
+  gs_order_business_out     TYPE bapisdbusi,
+  gs_order_address_out      TYPE bapisdcoad,
+  gs_order_partners_out     TYPE bapisdpart,
+  gs_order_itemstatus_out   TYPE /afs/bapisditst,
+  gs_order_schdstatus_out   TYPE /afs/bapisdschdst,
+  gs_order_conditions_out   TYPE /afs/bapicond,
+  gs_header_condition_out   TYPE bapicondhd,
+  gs_item_condition_out     TYPE bapicondit,
+  gs_order_cond_qty_scale   TYPE bapicondqs,
+  gs_order_cond_val_scale   TYPE bapicondvs,
+  gs_order_cfgs_curefs_out  TYPE bapicurefm,
+  gs_order_cfgs_cucfgs_out  TYPE bapicucfgm,
+  gs_order_cfgs_cuins_out   TYPE bapicuinsm,
+  gs_order_cfgs_cuprts_out  TYPE bapicuprtm,
+  gs_order_cfgs_cuvals_out  TYPE bapicuvalm,
+  gs_order_cfgs_cublbs_out  TYPE bapicublbm,
+  gs_order_cfgs_cuvks_out   TYPE bapicuvkm,
+  gs_order_creditcards_out  TYPE bapiccardm,
+  gs_extensionout           TYPE bapiparex,
+  gs_order_textheaders_out  TYPE bapisdtehd,
+  gs_order_textlines_out    TYPE bapitextli,
+  gs_order_vas_tl_out       TYPE /afs/bapij_3avatlv,
+  gs_order_vas_pack_out     TYPE /afs/bapij_3avap,
+  gs_order_vas_sps_out      TYPE /afs/bapij_3avassov.
+
+DATA: gs_open_qty                    TYPE typ_open_qty.
+DATA: gs_wb2_v_vbak_vbap2 TYPE wb2_v_vbak_vbap2,
+      gs_order            TYPE typ_order.
+
+DATA:
+  gr_ihrez TYPE RANGE OF ihrez,
+  gs_ihrez LIKE LINE OF gr_ihrez.
+
+
+DATA:    gr_vbeln  TYPE TABLE OF shp_vbeln_range,
+         gs_vbeln  TYPE shp_vbeln_range,
+         gr_auart  TYPE RANGE OF auart,
+         gs_auart  LIKE LINE OF gr_auart,
+         gr_vbtyp  TYPE RANGE OF vbtyp,
+         gs_vbtyp  LIKE LINE OF gr_vbtyp,
+         gr_vkorg  TYPE RANGE OF vkorg,
+         gs_vkorg  LIKE LINE OF gr_vkorg,
+         gr_vtweg  TYPE RANGE OF vtweg,
+         gs_vtweg  LIKE LINE OF gr_vtweg,
+         gr_spart  TYPE RANGE OF spart,
+         gs_spart  LIKE LINE OF gr_spart,
+         gr_kunnr  TYPE TABLE OF bapi_rangeskunnr,
+         gs_kunnr  TYPE bapi_rangeskunnr,
+         gr_kdgrp  TYPE RANGE OF kdgrp,
+         gs_kdgrp  LIKE LINE OF gr_kdgrp,
+         gr_audat  TYPE RANGE OF audat,
+         gs_audat  LIKE LINE OF gr_audat,
+         gr_erdat  TYPE TABLE OF bapi_rangesaudat,
+         gs_erdat  TYPE bapi_rangesaudat,
+         gr_aedat  TYPE RANGE OF aedat,
+         gs_aedat  LIKE LINE OF gr_aedat,
+         gr_vdatu  TYPE RANGE OF vbak-vdatu,
+         gs_vdatu  LIKE LINE OF gr_vdatu,
+         gr_matnr  TYPE RANGE OF matnr,
+         gs_matnr  LIKE LINE OF gr_matnr,
+         gr_abgru  TYPE RANGE OF abgru,
+         gs_abgru  LIKE LINE OF gr_abgru,
+*         gr_bstnk  TYPE RANGE OF vbak-bstnk,
+*         gs_bstnk  LIKE LINE OF gr_bstnk,
+         gr_bstkd  TYPE RANGE OF vbkd-bstkd,
+         gs_bstkd  LIKE LINE OF gr_bstkd,
+         gr_shipto TYPE RANGE OF vbpa-kunnr,
+         gs_shipto LIKE LINE OF gr_shipto.
+
+DATA: gt_vbfa      TYPE TABLE OF vbfa,
+*      gs_vbfa      TYPE vbfa,
+      gt_konv      TYPE TABLE OF konv,
+*      gs_konv      TYPE konv,
+      gt_j_3abdbs  TYPE TABLE OF j_3abdbs,
+      gs_j_3abdbs  TYPE j_3abdbs,
+      gt_so_qty    TYPE TABLE OF typ_so_qty,
+      gs_so_qty    TYPE typ_so_qty,
+      gt_vbep      TYPE TABLE OF vbep,
+*      gs_vbep      TYPE vbep,
+      gt_vbup      TYPE TABLE OF vbup,
+*      gs_vbup      TYPE vbup,
+      gt_delstatus TYPE TABLE OF vbup.
+*      gs_delstatus TYPE vbup.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

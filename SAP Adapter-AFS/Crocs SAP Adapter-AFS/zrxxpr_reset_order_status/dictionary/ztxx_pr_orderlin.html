@@ -1,0 +1,761 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="application/xhtml+xml; charset=ISO-8859-1" />
+<title>Dictionary object- ZTXX_PR_ORDERLIN</title>
+<style type="text/css">
+  th{text-align:left}
+  .cell{
+     font-family:"Courier New", Courier, monospace;
+     color:#000;
+     font-size:12px;
+     background-color:#F2F4F7;
+  }
+  .cell td { border: thin solid #ccc; }
+</style>
+<style type="text/css">
+  .normal{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:12px }
+  .footer{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:12px; text-align: center }
+  h2{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:16px; font-weight:800 }
+  h3{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:14px; font-weight:800 }
+  .outerTable{
+   background-color:#E0E7ED;
+   width:100%;
+   border-top-width: thin;
+   border-right-width: thin;
+   border-right-width: thin;
+   border-left-width: thin;
+   border-top-style: solid;
+   border-right-style: solid;
+   border-bottom-style: solid;
+   border-left-style: solid;
+  }
+  .innerTable{
+   background-color:#F2F4F7;
+   width:100%;
+   border-top-width: thin;
+   border-right-width: thin;
+   border-bottom-width: thin;
+   border-left-width: thin;
+   border-top-style: solid;
+   border-right-style: solid;
+   border-bottom-style: solid;
+   border-left-style: solid;
+  }
+</style>
+</head>
+<body>
+  <table class="outerTable">
+    <tr>
+      <td><h2>Table: ZTXX_PR_ORDERLIN</h2>
+  <h3>Description: PlumRiver:  HDI Order Line Items</h3></td>
+    </tr>
+    <tr>
+      <td><!--This is where our main table begins  -->
+<table class="innerTable">
+<tr>
+  <th>Row</th>
+  <th>Field name</th>
+  <th>Position</th>
+  <th>Key</th>
+  <th>Data element</th>
+  <th>Domain</th>
+  <th>Datatype</th>
+  <th>Length</th>
+  <th>Lowercase</th>
+  <th>Domain text</th>
+</tr>
+<tr class="cell">
+  <td> 1</td>
+  <td>.INCLUDE</td>
+  <td>1</td>
+  <td>X</td>
+  <td>ZSXX_PR_TABLEKEY</td>
+  <td>&nbsp;</td>
+  <td>&nbsp;</td>
+  <td>0</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  SAP Key fields</td>
+</tr>
+<tr class="cell">
+  <td> 2</td>
+  <td>MANDT</td>
+  <td>2</td>
+  <td>X</td>
+  <td>MANDT</td>
+  <td>MANDT</td>
+  <td>CLNT</td>
+  <td>3</td>
+  <td>&nbsp;</td>
+  <td>Client</td>
+</tr>
+<tr class="cell">
+  <td> 3</td>
+  <td>TECHSITE</td>
+  <td>3</td>
+  <td>X</td>
+  <td>ZPLUMRIVER_WEBSITE_TECHNICAL</td>
+  <td>CHAR25</td>
+  <td>CHAR</td>
+  <td>25</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  SAP technical name for the website</td>
+</tr>
+<tr class="cell">
+  <td> 4</td>
+  <td>VKORG</td>
+  <td>4</td>
+  <td>X</td>
+  <td>VKORG</td>
+  <td>VKORG</td>
+  <td>CHAR</td>
+  <td>4</td>
+  <td>&nbsp;</td>
+  <td>Sales Organization</td>
+</tr>
+<tr class="cell">
+  <td> 5</td>
+  <td>VTWEG</td>
+  <td>5</td>
+  <td>X</td>
+  <td>VTWEG</td>
+  <td>VTWEG</td>
+  <td>CHAR</td>
+  <td>2</td>
+  <td>&nbsp;</td>
+  <td>Distribution Channel</td>
+</tr>
+<tr class="cell">
+  <td> 6</td>
+  <td>SPART</td>
+  <td>6</td>
+  <td>X</td>
+  <td>SPART</td>
+  <td>SPART</td>
+  <td>CHAR</td>
+  <td>2</td>
+  <td>&nbsp;</td>
+  <td>Division</td>
+</tr>
+<tr class="cell">
+  <td> 7</td>
+  <td>SEQ</td>
+  <td>7</td>
+  <td>X</td>
+  <td>NUM10</td>
+  <td>NUM10</td>
+  <td>NUMC</td>
+  <td>10</td>
+  <td>&nbsp;</td>
+  <td>10 digit number</td>
+</tr>
+<tr class="cell">
+  <td> 8</td>
+  <td>ZZORDER</td>
+  <td>8</td>
+  <td>X</td>
+  <td>ZPLUMRIVER_ORDERNO</td>
+  <td>CHAR10</td>
+  <td>CHAR</td>
+  <td>10</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Sales Order Number</td>
+</tr>
+<tr class="cell">
+  <td> 9</td>
+  <td>ZZORDLINENO</td>
+  <td>9</td>
+  <td>X</td>
+  <td>ZPLUMRIVER_ORDERLINENO</td>
+  <td>CHAR6</td>
+  <td>CHAR</td>
+  <td>6</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Line item number</td>
+</tr>
+<tr class="cell">
+  <td>10</td>
+  <td>ZZSCHLINENO</td>
+  <td>10</td>
+  <td>X</td>
+  <td>ZPLUMRIVER_SCHLINENO</td>
+  <td>CHAR4</td>
+  <td>CHAR</td>
+  <td>4</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  SD Schedule Line number</td>
+</tr>
+<tr class="cell">
+  <td>11</td>
+  <td>.INCLUDE</td>
+  <td>11</td>
+  <td>&nbsp;</td>
+  <td>ZSXX_PR_ORDERLINE</td>
+  <td>&nbsp;</td>
+  <td>&nbsp;</td>
+  <td>0</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  HDI Order Line</td>
+</tr>
+<tr class="cell">
+  <td>12</td>
+  <td>ID</td>
+  <td>12</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ID</td>
+  <td>TSTAMP</td>
+  <td>NUMC</td>
+  <td>14</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Auto assigned primary key (HDI)</td>
+</tr>
+<tr class="cell">
+  <td>13</td>
+  <td>LOCALEID</td>
+  <td>13</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_LID</td>
+  <td>TEXT10</td>
+  <td>CHAR</td>
+  <td>10</td>
+  <td>X</td>
+  <td>PlumRiver:  Windows Locality ID (HDI)</td>
+</tr>
+<tr class="cell">
+  <td>14</td>
+  <td>HOSTREF</td>
+  <td>14</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_HOSTREF</td>
+  <td>TEXT60</td>
+  <td>CHAR</td>
+  <td>60</td>
+  <td>X</td>
+  <td>PlumRiver:  Host Reference (HDI)</td>
+</tr>
+<tr class="cell">
+  <td>15</td>
+  <td>ORDERNO</td>
+  <td>15</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ORDERNO</td>
+  <td>CHAR10</td>
+  <td>CHAR</td>
+  <td>10</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Sales Order Number</td>
+</tr>
+<tr class="cell">
+  <td>16</td>
+  <td>WEBSITE</td>
+  <td>16</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_WEBSITE</td>
+  <td>TEXT30</td>
+  <td>CHAR</td>
+  <td>30</td>
+  <td>X</td>
+  <td>PlumRiver:  Website (recognized at PlumRiver)</td>
+</tr>
+<tr class="cell">
+  <td>17</td>
+  <td>SALESORG</td>
+  <td>17</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_VKORG</td>
+  <td>VKORG</td>
+  <td>CHAR</td>
+  <td>4</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Sales Organization</td>
+</tr>
+<tr class="cell">
+  <td>18</td>
+  <td>DIVISION</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_SPART</td>
+  <td>SPART</td>
+  <td>CHAR</td>
+  <td>2</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Division</td>
+</tr>
+<tr class="cell">
+  <td>19</td>
+  <td>ORDERLINENO</td>
+  <td>19</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ORDERLINENO</td>
+  <td>CHAR6</td>
+  <td>CHAR</td>
+  <td>6</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Line item number</td>
+</tr>
+<tr class="cell">
+  <td>20</td>
+  <td>SCHLINENO</td>
+  <td>20</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_SCHLINENO</td>
+  <td>CHAR4</td>
+  <td>CHAR</td>
+  <td>4</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  SD Schedule Line number</td>
+</tr>
+<tr class="cell">
+  <td>21</td>
+  <td>STYLE</td>
+  <td>21</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_STYLE</td>
+  <td>MATNR</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Style</td>
+</tr>
+<tr class="cell">
+  <td>22</td>
+  <td>SKU</td>
+  <td>22</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_SKU</td>
+  <td>TEXT30</td>
+  <td>CHAR</td>
+  <td>30</td>
+  <td>X</td>
+  <td>PlumRiver:  SKU (HDI)</td>
+</tr>
+<tr class="cell">
+  <td>23</td>
+  <td>UPC</td>
+  <td>23</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_UPC</td>
+  <td>EAN11</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  UPC (HDI)</td>
+</tr>
+<tr class="cell">
+  <td>24</td>
+  <td>CUSTSTYLE</td>
+  <td>24</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_CUSTSTYLE</td>
+  <td>IDNEX</td>
+  <td>CHAR</td>
+  <td>35</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Customer style</td>
+</tr>
+<tr class="cell">
+  <td>25</td>
+  <td>CUSTSKU</td>
+  <td>25</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_CUSTSKU</td>
+  <td>IDNEX</td>
+  <td>CHAR</td>
+  <td>35</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Customer SKU (external)</td>
+</tr>
+<tr class="cell">
+  <td>26</td>
+  <td>CUSTUPC</td>
+  <td>26</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_CUSTUPC</td>
+  <td>EAN11</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Customer UPC (external)</td>
+</tr>
+<tr class="cell">
+  <td>27</td>
+  <td>ATTRIBUTELABEL1</td>
+  <td>27</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ATTRIBUTE1</td>
+  <td>TEXT30</td>
+  <td>CHAR</td>
+  <td>30</td>
+  <td>X</td>
+  <td>PlumRiver:  X-Axis attribute or variant name (dimension 1)</td>
+</tr>
+<tr class="cell">
+  <td>28</td>
+  <td>ATTRIBUTELABEL2</td>
+  <td>28</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ATTRIBUTE2</td>
+  <td>TEXT30</td>
+  <td>CHAR</td>
+  <td>30</td>
+  <td>X</td>
+  <td>PlumRiver:  Y-Axis attribute or variant name (dimension 2)</td>
+</tr>
+<tr class="cell">
+  <td>29</td>
+  <td>ATTRIBUTELABEL3</td>
+  <td>29</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ATTRIBUTE3</td>
+  <td>TEXT30</td>
+  <td>CHAR</td>
+  <td>30</td>
+  <td>X</td>
+  <td>PlumRiver:  3rd axis attribute or variant name (dimension 3)</td>
+</tr>
+<tr class="cell">
+  <td>30</td>
+  <td>ATTRIBUTELABEL4</td>
+  <td>30</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ATTRIBUTE4</td>
+  <td>TEXT30</td>
+  <td>CHAR</td>
+  <td>30</td>
+  <td>X</td>
+  <td>PlumRiver:  4th axis attribute or variant name (dimension 4)</td>
+</tr>
+<tr class="cell">
+  <td>31</td>
+  <td>ATTRIBUTELABEL5</td>
+  <td>31</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ATTRIBUTE5</td>
+  <td>TEXT30</td>
+  <td>CHAR</td>
+  <td>30</td>
+  <td>X</td>
+  <td>PlumRiver:  5th axis attribute or variant name (dimension 5)</td>
+</tr>
+<tr class="cell">
+  <td>32</td>
+  <td>ATTRIBUTEVALUE1</td>
+  <td>32</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ATTRIBUTEVALUE1</td>
+  <td>TEXT40</td>
+  <td>CHAR</td>
+  <td>40</td>
+  <td>X</td>
+  <td>PlumRiver:  1st attribute value for the style</td>
+</tr>
+<tr class="cell">
+  <td>33</td>
+  <td>ATTRIBUTEVALUE2</td>
+  <td>33</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ATTRIBUTEVALUE2</td>
+  <td>TEXT40</td>
+  <td>CHAR</td>
+  <td>40</td>
+  <td>X</td>
+  <td>PlumRiver:  2nd attribute value for the style</td>
+</tr>
+<tr class="cell">
+  <td>34</td>
+  <td>ATTRIBUTEVALUE3</td>
+  <td>34</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ATTRIBUTEVALUE3</td>
+  <td>TEXT40</td>
+  <td>CHAR</td>
+  <td>40</td>
+  <td>X</td>
+  <td>PlumRiver:  3rd attribute value for the style</td>
+</tr>
+<tr class="cell">
+  <td>35</td>
+  <td>ATTRIBUTEVALUE4</td>
+  <td>35</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ATTRIBUTEVALUE4</td>
+  <td>TEXT40</td>
+  <td>CHAR</td>
+  <td>40</td>
+  <td>X</td>
+  <td>PlumRiver:  4th attribute value for the style</td>
+</tr>
+<tr class="cell">
+  <td>36</td>
+  <td>ATTRIBUTEVALUE5</td>
+  <td>36</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_ATTRIBUTEVALUE5</td>
+  <td>TEXT40</td>
+  <td>CHAR</td>
+  <td>40</td>
+  <td>X</td>
+  <td>PlumRiver:  5th attribute value for the style</td>
+</tr>
+<tr class="cell">
+  <td>37</td>
+  <td>DESCRIPTION</td>
+  <td>37</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_DESCRIPTION</td>
+  <td>TEXT255</td>
+  <td>CHAR</td>
+  <td>255</td>
+  <td>X</td>
+  <td>PlumRiver:  Description</td>
+</tr>
+<tr class="cell">
+  <td>38</td>
+  <td>DATESCHSHIP</td>
+  <td>38</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_DATESCHSHIP</td>
+  <td>ZPLUMRIVER_TIMESTAMP</td>
+  <td>CHAR</td>
+  <td>14</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Scheduled ship date</td>
+</tr>
+<tr class="cell">
+  <td>39</td>
+  <td>QTYORDERED</td>
+  <td>39</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_QTYORDERED</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  (Cumulative) Line Item quantity</td>
+</tr>
+<tr class="cell">
+  <td>40</td>
+  <td>QTYSHIPPED</td>
+  <td>40</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_QTYSHIPPED</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  (Cumulative) quantity shipped</td>
+</tr>
+<tr class="cell">
+  <td>41</td>
+  <td>QTYPICKED</td>
+  <td>41</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_QTYPICKED</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  (Cumulative) quantity in Pick status</td>
+</tr>
+<tr class="cell">
+  <td>42</td>
+  <td>QTYALLOCATED</td>
+  <td>42</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_QTYALLOCATED</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  (Cumulative) quantity in Allocated status</td>
+</tr>
+<tr class="cell">
+  <td>43</td>
+  <td>QTYOPEN</td>
+  <td>43</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_QTYOPEN</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  (Cumulative) quantity in OPEN status</td>
+</tr>
+<tr class="cell">
+  <td>44</td>
+  <td>QTYUNAVAILABLE</td>
+  <td>44</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_QTYUNAVAILABLE</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  (Cumulative) quantity not available</td>
+</tr>
+<tr class="cell">
+  <td>45</td>
+  <td>QTYBALANCE</td>
+  <td>45</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_QTYBALANCE</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Line item Balance quantity</td>
+</tr>
+<tr class="cell">
+  <td>46</td>
+  <td>UNITMEASURE</td>
+  <td>46</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_UNITMEASURE</td>
+  <td>TEXT10</td>
+  <td>CHAR</td>
+  <td>10</td>
+  <td>X</td>
+  <td>PlumRiver:  Unit of Measure</td>
+</tr>
+<tr class="cell">
+  <td>47</td>
+  <td>UNITPRICEWHOLESL</td>
+  <td>47</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_UNITPRICEWHOLESALE</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Wholesale unit price</td>
+</tr>
+<tr class="cell">
+  <td>48</td>
+  <td>UNITPRICENET</td>
+  <td>48</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_UNITPRICENET</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Wholesale unit price</td>
+</tr>
+<tr class="cell">
+  <td>49</td>
+  <td>UNITPRICEPROMO</td>
+  <td>49</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_UNITPRICEPROMO</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Promotional unit price</td>
+</tr>
+<tr class="cell">
+  <td>50</td>
+  <td>SUBTOTALWHOLESAL</td>
+  <td>50</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_SUBTOTALWHOLESALE</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Wholesale Subtotal</td>
+</tr>
+<tr class="cell">
+  <td>51</td>
+  <td>SUBTOTALNET</td>
+  <td>51</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_SUBTOTALNET</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Net value after discounts/surcharges</td>
+</tr>
+<tr class="cell">
+  <td>52</td>
+  <td>DISCOUNTPERCENT</td>
+  <td>52</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_DISCOUNTPERCENT</td>
+  <td>EDIF6314</td>
+  <td>CHAR</td>
+  <td>18</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Percent discount off wholesale</td>
+</tr>
+<tr class="cell">
+  <td>53</td>
+  <td>WAREHOUSENO</td>
+  <td>53</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_WAREHOUSENO</td>
+  <td>WERKS</td>
+  <td>CHAR</td>
+  <td>4</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Warehouse (or plant) number</td>
+</tr>
+<tr class="cell">
+  <td>54</td>
+  <td>WAREHOUSE</td>
+  <td>54</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_WAREHOUSE</td>
+  <td>TEXT30</td>
+  <td>CHAR</td>
+  <td>30</td>
+  <td>X</td>
+  <td>PlumRiver:  Warehouse Description</td>
+</tr>
+<tr class="cell">
+  <td>55</td>
+  <td>TRACKINGNO</td>
+  <td>55</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_TRACKINGNO</td>
+  <td>TEXT30</td>
+  <td>CHAR</td>
+  <td>30</td>
+  <td>X</td>
+  <td>PlumRiver:  Tracking number</td>
+</tr>
+<tr class="cell">
+  <td>56</td>
+  <td>STATUS</td>
+  <td>56</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_STATUS</td>
+  <td>TEXT60</td>
+  <td>CHAR</td>
+  <td>60</td>
+  <td>X</td>
+  <td>PlumRiver:  Line item status</td>
+</tr>
+<tr class="cell">
+  <td>57</td>
+  <td>DATEINSERTED</td>
+  <td>57</td>
+  <td>&nbsp;</td>
+  <td>ZPLUMRIVER_DATEINSERTED</td>
+  <td>ZPLUMRIVER_TIMESTAMP</td>
+  <td>CHAR</td>
+  <td>14</td>
+  <td>&nbsp;</td>
+  <td>PlumRiver:  Record Insertion Date (timestamp)</td>
+</tr>
+      </table>
+     </td>
+   </tr>
+<br/>
+   <tr>
+<td class="footer">Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740</td>
+   </tr>
+</table>
+</body>
+</html>

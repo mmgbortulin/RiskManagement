@@ -1,0 +1,201 @@
+FUNCTION Z_RFC_PR_TABLE_XML_GET.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(I_TABLECODE) TYPE  ZPLUMRIVER_HDITABNAME
+*"     VALUE(I_WEBSITE) TYPE  ZPLUMRIVER_WEBSITE DEFAULT '%'
+*"     VALUE(I_VKORG) TYPE  VKORG DEFAULT '%'
+*"     VALUE(I_VTWEG) TYPE  VTWEG DEFAULT '%'
+*"     VALUE(I_SPART) TYPE  SPART DEFAULT '%'
+*"  TABLES
+*"      TA_XMLTEXT STRUCTURE  ZSXX_PR_TEXTROW
+*"      TA_RETURN STRUCTURE  BAPIRET1
+*"----------------------------------------------------------------------
+*=======================================================================
+* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*  PlumRiver LLC
+*  Version 2.0.00
+*  Delivered:  February 23, 2011
+* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*=======================================================================
+
+*//  Local Declarations
+  DATA:  LS_XMLTEXT type ZSXX_PR_TEXTROW.
+
+  FIELD-SYMBOLS:  <XMLTEXT> like line of TA_XMLTEXT.
+
+*//  Begin Processing
+* Initialize tables and set values for parameters
+  PERFORM INITIALIZE_GLOBALS_TOP.
+* Get technical (SAP) websites
+  PERFORM GET_TECHSITES TABLES GT_TECHSITE
+                               TA_RETURN
+                        using  I_WEBSITE
+                     CHANGING  GV_RC.
+  IF GV_RC is initial.
+    clear: gv_dbcnt.
+*-- determine name of table to be transferred
+    PERFORM GET_TABLENAME TABLES TA_RETURN
+                           using I_TABLECODE
+                        CHANGING GV_TABNAME.
+    IF NOT GV_TABNAME IS INITIAL.
+*---- Begin data extraction
+********************************************
+*---- we have a list of tables to process...
+*---- First, build HDI fieldname exception list
+      select *
+          from ZTXX_PR_FIELDMAP into GS_HDIFIELDS
+          where tabname = gv_TABNAME.
+        insert gs_hdifields into table GTH_HDIFIELDS.
+      endselect.
+*---- Now, continue processing
+      clear: dref,
+             gt_fields.
+*---- get table field names
+      select  tabname fieldname as4local
+              position keyflag rollname
+              inttype intlen precfield
+              datatype leng decimals
+              domname comptype
+          from dd03l into table gt_fields
+          where tabname = GV_TABNAME   and
+                AS4LOCAL = 'A'.                       "active
+      if sy-subrc = 0.
+*------ table fields retrieved... begin processing.
+        sort gt_fields by position.
+*------ remove any fields that are key table fields or don't have
+*------ a data element as a reference data type
+        delete gt_fields where comptype <> 'E'   OR   "not data element
+                               keyflag = 'X'.         "primary key
+*------ prepare administrative fields.
+        clear: gv_line,
+               gv_tabix.
+        loop at gt_fields assigning <fields>.
+          gv_tabix = gv_tabix + 1.
+*-------- Check for HDI fieldname exceptions (that don't match)
+          READ TABLE GTH_HDIFIELDS ASSIGNING <HDI>
+                        with table key TABNAME = <fields>-TABNAME
+                                       FIELDNAME = <fields>-FIELDNAME.
+          IF SY-SUBRC = 0.
+*---------- corresponding HDI fieldname does not match SAP DB fieldname
+            <fields>-HDIFIELD = <HDI>-HDIFIELD.
+            <fields>-xLongText = <HDI>-xLongText.
+          ELSE.
+*---------- HDI fieldname is same in SAP database table
+            <fields>-HDIFIELD = <fields>-FIELDNAME.
+          ENDIF.
+*-------- Create OPEN and CLOSE XML tags
+          concatenate '<'
+                      <fields>-HDIFIELD
+                      '>'
+                  into <fields>-otag.
+          concatenate '</'
+                      <fields>-HDIFIELD
+                      '>'
+                  into <fields>-ctag.
+        endloop.  "at gt_fields assigning <fields>
+      else.
+*------ output message that table fields could not be determined
+        gv_msgid = 'ZPLUMRIVER'.
+        write: gv_tabname to gv_msgv1 left-justified.
+        perform SET_RETURN_MESSAGE using 'E' gv_msgid '015'
+                                         gv_msgv1 space space space
+                              changing   gs_ret1.
+        append gs_ret1 to ta_return.
+      endif.   "sy-subrc = 0 [when retrieving table field names]
+*---- Now begin retrieving records from the database table
+      CREATE DATA DRef type (GV_TABNAME).
+      assign DRef->* to <wa>.
+      select *
+          from (GV_TABNAME)
+          into <wa>
+          for all entries in GT_TECHSITE
+          where techsite = GT_TECHSITE-WEBSITE   and
+                VKORG LIKE  I_VKORG              AND
+                VTWEG LIKE  I_VTWEG              AND
+                SPART LIKE  I_SPART.
+  .     clear: gv_line.
+        gv_dbcnt = gv_dbcnt + 1.
+        loop at gt_fields assigning <fields>.
+          assign component <fields>-fieldname of structure <wa>
+                                              to <fld>.
+          if sy-subrc <> 0.
+            unassign <fld>.
+          endif.
+*-------- HANDLE LONG TEXTS (> CHAR255) IN THE FOLLOWING CASE STATEMENT.
+          IF <fields>-xlongtext = 'X'.
+            PERFORM GET_SAP_LONGTEXT  USING  <FLD>
+                                   CHANGING  GV_FieldString.
+            ASSIGN GV_FieldString TO <FLD>.
+            if sy-subrc <> 0.
+              unassign <fld>.
+            endif.
+          ENDIF.   "<fields>-xlongtext = 'X'
+          if <fld> is assigned.
+            if <fields>-domname = 'ZPLUMRIVER_TIMESTAMP'.
+*------------ provide selected date/time fields in HDI timestamp format
+*------------ CCYY-MM-DD HH:MM:SS
+              clear: gv_hdidate.
+              write: <fld> to gv_hdidate.
+              gv_string = gv_hdidate.
+            else.
+*------------ everything else
+              gv_string = <fld>.
+            endif.   "<fields>-domname = 'ZPLUMRIVER_TIMESTAMP'
+**--------- build tagged field
+            if <fields>-inttype ca 'PFIX'.
+*------------ numeric types
+              shift gv_string left deleting leading space.
+            endif.   "<fields>-inttype ca 'PFIX'
+            concatenate gv_line
+                        <fields>-otag
+                        gv_string
+                        <fields>-ctag
+                    into gv_line.
+          endif.    "<fld> is assigned
+        endloop.   "at gt_fields assigning <fields>
+*------ transfer data record to return table
+        clear: gv_pos,
+               gv_len,
+               gv_strlen,
+               LS_XMLTEXT.
+        gv_strlen = numofchar( gv_line ).
+        LS_XMLTEXT-ID = 'NL'.
+        While gv_strlen > 0.
+          if gv_strlen > 500.
+            gv_len = 500.
+          else.
+            gv_len = gv_strlen.
+          endif.
+          LS_XMLTEXT-TLINE = gv_line+gv_pos(gv_len).
+          append LS_XMLTEXT to TA_XMLTEXT.
+          clear: LS_XMLTEXT.
+          LS_XMLTEXT-ID = '/='.        "subsequent records (continued)
+          gv_pos = gv_pos + gv_len.    "new string position
+          gv_strlen = gv_strlen - 500. "remaining line characters
+        ENDWHILE.   "gv_strlen > 0
+      endselect.   "from (GV_TABNAME)... into <wa>
+    ENDIF.   "NOT GV_TABNAME IS INITIAL
+*-- Send final Message to Return TABLE for messages (Success/Failure)
+    if NOT TA_XMLTEXT[] is initial.
+*---- successful retrieval of records.
+      gv_msgid = 'ZPLUMRIVER'.
+      write: gv_dbcnt to gv_msgv1 left-justified.
+      perform SET_RETURN_MESSAGE using 'S' gv_msgid '003'
+                                       gv_msgv1 space space space
+                            changing   gs_ret1.
+      append gs_ret1 to ta_return.
+    else.
+*---- no records returned.
+      gv_msgid = 'ZPLUMRIVER'.
+      perform SET_RETURN_MESSAGE using 'E' gv_msgid '099'
+                                       space space space space
+                            changing   gs_ret1.
+      append gs_ret1 to ta_return.
+    endif.   "NOT TA_XMLTEXT[] is initial
+  ENDIF.   "GV_RC is initial
+
+ENDFUNCTION.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

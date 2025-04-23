@@ -1,0 +1,26 @@
+FUNCTION-POOL ZXXPR_TEXT_EDITOR.            "MESSAGE-ID ..
+
+* Constants
+CONSTANTS: LINE_LENGTH TYPE I VALUE 132.
+
+* Table for data exchange
+TYPES: BEGIN OF MYTABLE_LINE,
+         LINE(LINE_LENGTH) TYPE C,
+       END OF MYTABLE_LINE.
+
+* Reference
+DATA: EDITOR TYPE REF TO C_TEXTEDIT_CONTROL.
+
+* Global fields
+DATA: GL_TEXTLINES     TYPE TABLE OF MYTABLE_LINE,
+      MYTABLE          TYPE TABLE OF MYTABLE_LINE,
+*      GV_STRING        TYPE STRING,
+      GV_STRING(4000)   ,
+      OK_CODE          LIKE SY-UCOMM,
+      REPID            LIKE SY-REPID,
+      GL_TITLE         LIKE TTXIT-TDTEXT,
+      GL_HEADER        LIKE THEAD,
+      WINDOWS32BIT_GUI TYPE C.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

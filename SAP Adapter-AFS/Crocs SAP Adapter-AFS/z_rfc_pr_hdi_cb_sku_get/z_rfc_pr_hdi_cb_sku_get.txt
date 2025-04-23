@@ -1,0 +1,423 @@
+FUNCTION Z_RFC_PR_HDI_CB_SKU_GET.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(I_WEBSITE) TYPE  ZPLUMRIVER_WEBSITE
+*"  TABLES
+*"      TA_STYLE_LIST STRUCTURE  ZSXX_STYLE_FOUND
+*"      TA_STYLE STRUCTURE  ZSXX_PR_TEXTROW OPTIONAL
+*"      TA_SKU STRUCTURE  ZSXX_PR_TEXTROW OPTIONAL
+*"      TA_RETURN STRUCTURE  BAPIRET1 OPTIONAL
+*"----------------------------------------------------------------------
+*=======================================================================
+* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*  PlumRiver LLC
+*  Version 2.0.10
+*  Delivered:  October 9, 2011
+* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*=======================================================================
+
+*//  Local Declarations
+* WORK AREAS FOR INTERFACE TABLES
+  DATA:  LS_STYLE TYPE ZSXX_PR_STYLE,
+         LS_SKU TYPE ZSXX_PR_SKU.
+
+* Style List
+  DATA:  GS_MATLIST type ZSXX_STYLE_FOUND.
+
+  DATA:  GT_MATLIST like standard table of GS_MATLIST
+                    with non-unique key matnr
+                    initial size 0.
+
+* STYLE
+  DATA:  GS_STYLE TYPE ZTXX_PR_STYLE.
+
+  DATA: GT_STYLE like standard table of GS_STYLE
+                 with non-unique key MANDT TECHSITE VKORG
+                                     VTWEG SPART SEQ
+                 initial size 0.
+
+* SKU
+  DATA:  GS_SKU TYPE ZTXX_PR_SKU.
+
+  DATA: GT_SKU like standard table of GS_SKU
+               with non-unique key MANDT TECHSITE VKORG
+                                   VTWEG SPART SEQ
+               initial size 0.
+
+* MARA DETAILS
+  DATA:  BEGIN OF GS_MARA,
+           MATNR TYPE MARA-MATNR,
+           MTART TYPE MARA-MTART,
+           MATKL TYPE MARA-MATKL,
+           MEINS TYPE MARA-MEINS,
+           BRGEW TYPE MARA-BRGEW,
+           NTGEW TYPE MARA-NTGEW,
+           GEWEI TYPE MARA-GEWEI,
+           VOLUM TYPE MARA-VOLUM,
+           VOLEH TYPE MARA-VOLEH,
+           SPART TYPE MARA-SPART,
+           KUNNR TYPE MARA-KUNNR,
+           LAENG TYPE MARA-LAENG,
+           BREIT TYPE MARA-BREIT,
+           HOEHE TYPE MARA-HOEHE,
+           MEABM TYPE MARA-MEABM,
+           PRDHA TYPE MARA-PRDHA,
+           HERKL TYPE MARA-HERKL,
+           J_3APGNR TYPE MARA-J_3APGNR,
+           J_3AKALSV TYPE MARA-J_3AKALSV,
+           J_3AKALSM TYPE MARA-J_3AKALSM,
+           J_4KCSGR TYPE MARA-J_4KCSGR,
+           J_4KCOVSA TYPE MARA-J_4KCOVSA,
+         END OF GS_MARA.
+
+* FIELDS
+  DATA:  gv_subrc type sysubrc,
+         GV_SEQ type NUM10,
+         GV_SEQ2 type NUM10,
+         GV_DATEINSERTED type ZPLUMRIVER_DATEINSERTED.
+
+*// Local declaration
+  data:  lv_ean11 type ean11,
+         lv_tabix(4).
+
+  data:  LV_3apgnr type mara-j_3apgnr.
+
+  DATA:  LV_MATNR TYPE MATNR.
+
+* UPC lookup
+  DATA: BEGIN OF LS_MEAN,
+          MATNR TYPE MEAN-MATNR,
+          J_3AKORDX TYPE MEAN-J_3AKORDX,
+          MEINH TYPE MEAN-MEINH,
+          LFNUM TYPE MEAN-LFNUM,
+          EAN11 TYPE MEAN-EAN11,
+        END OF LS_MEAN.
+
+  DATA:  LT_MEAN like standard table of LS_MEAN
+                 with non-unique key matnr j_3akordx
+                 initial size 30.
+
+* Grid determination structures
+  DATA: LS_komk  TYPE j_3akomk,  "Grid Determ. Communication Header
+        LS_komp  TYPE j_3akomp,  "Grid Determination Communication Item
+        LS_grhd  TYPE j_3agrhd,  "AFS Grid Condition Header
+        LS_grcd TYPE j_3agrcd,   "AFS Sales-Grid: Control-Data
+        LS_pghd TYPE j_3apghd,   "AFS Product grid header
+        LS_grid TYPE j_3apgen.   "AFS Product grid entries
+
+  DATA: LT_grcd LIKE STANDARD TABLE OF LS_grcd
+                WITH NON-UNIQUE KEY  MANDT KNUMH J_3APGNR
+                                     J_3AVDAT J_3ASIZE
+                INITIAL SIZE 25.
+
+  DATA:  LT_GRID LIKE STANDARD TABLE OF LS_GRID
+                 WITH NON-UNIQUE KEY  MANDT J_3APGNR J_3AVDAT
+                                      J_3AKORD1 J_3AKORD2 J_3AKORD3
+                 INITIAL SIZE 25.
+
+* field symbols
+  field-symbols:  <SKU> LIKE GS_SKU,
+                  <matlist> like gs_matlist,
+                  <GRID> like LS_GRID,
+                  <MEAN> like LS_MEAN.
+
+* CONSTANTS
+  CONSTANTS:  gc_localeid_EN type zplumriver_lid value '1033'. "ENGLISH
+
+*//  Begin Processing
+* Initialize tables and set values for parameters
+  PERFORM INITIALIZE_GLOBALS_TOP.
+* Get technical (SAP) websites
+  PERFORM GET_TECHSITES TABLES GT_TECHSITE
+                               TA_RETURN
+                        using  I_WEBSITE
+                     CHANGING  GV_RC.
+  IF GV_RC is initial.
+*-- GET TECHNICAL WEBSITE
+    READ TABLE GT_TECHSITE INTO GS_TECHSITE
+                           INDEX 1.
+*-- copy material list and convert into internal format.
+    GT_MATLIST[] = TA_STYLE_LIST[].
+    clear:  gs_style,
+            GS_SKU,
+            gt_style[],
+            GT_SKU[].
+
+    clear:  gv_seq,
+            GV_SEQ2,
+            gv_dateinserted.
+    concatenate sy-datum
+                sy-uzeit
+            into gv_dateinserted.
+
+
+    LOOP AT TA_STYLE_LIST ASSIGNING <MATLIST>.
+      PERFORM CONVERSION_ALPHA_INPUT USING <MATLIST>-MATNR
+                                  CHANGING LV_MATNR.
+*      PERFORM MARA_GET_DETAILS USING LV_MATNR
+*                            CHANGING GS_MARA.
+*---- GET MARA DETAILS
+      SELECT SINGLE MATNR MTART MATKL MEINS BRGEW NTGEW
+                    GEWEI VOLUM VOLEH SPART KUNNR LAENG
+                    BREIT HOEHE MEABM PRDHA HERKL J_3APGNR
+                    J_3AKALSV J_3AKALSM J_4KCSGR J_4KCOVSA
+          FROM MARA INTO GS_MARA
+          WHERE MATNR = LV_MATNR.
+      IF SY-SUBRC = 0.
+*------ SET STATUS, MAP STYLE, AND GET SKU DETAILS
+        <MATLIST>-xFOUND = 'X'.
+        CLEAR:  GS_STYLE.
+        GV_SEQ = GV_SEQ + 1.
+*------ Fill ZTXX_PR_STYLE HDI table
+*------ set primary key
+        GS_STYLE-MANDT = sy-mandt.
+        GS_STYLE-TECHSITE = gs_techsite-website.
+*        GS_STYLE-VKORG = gv_vkorg.
+*        GS_STYLE-VTWEG = gv_vtweg.
+*        GS_STYLE-SPART = gv_spart.
+        GS_STYLE-SEQ = gv_seq.
+*------ set HDI fields
+        GS_STYLE-ID = gv_seq.
+        GS_STYLE-LOCALEID = gc_localeid_EN.      "1033: English
+**        write:  GS_MARA-matnr to GS_STYLE-STYLE left-justified
+**                              using edit mask '==ALPHA'.
+        GS_STYLE-STYLE = GS_MARA-matnr.
+        GS_STYLE-HOSTREF = GS_STYLE-STYLE.
+        GS_STYLE-WEBSITE = GS_TECHSITE-PR_website.
+        PERFORM GET_MATERIAL_DESCRIPTION  using GS_MARA-MATNR
+                                                GS_STYLE-LOCALEID
+                                       CHANGING GS_STYLE-NAME.
+        GS_STYLE-DESCRIPTION = GS_STYLE-NAME.
+        GS_STYLE-ALPHA = GS_STYLE-STYLE.
+*        GS_STYLE-VENDOR
+*        GS_STYLE-SUPPLIERSTYLE
+        write: GS_MARA-NTGEW to GS_STYLE-WEIGHT
+                        unit GS_MARA-GEWEI
+                        left-justified.
+        GS_STYLE-ATTRIBUTELABEL1 = 'Size'.
+*        GS_STYLE-ATTRIBUTELABEL2
+*        GS_STYLE-ATTRIBUTELABEL3
+*        GS_STYLE-ATTRIBUTELABEL4 = 'Material No.'.
+*        GS_STYLE-ATTRIBUTELABEL5
+        GS_STYLE-DATEINSERTED = gv_dateinserted.
+*        MOVE-CORRESPONDING: GS_STYLE TO LS_STYLE.
+        APPEND: GS_STYLE to GT_STYLE.
+*                LS_STYLE TO TA_STYLE.
+*//---- GET SKU DATA  *******************************
+*------ GET GRID DETAILS (SALES OR MASTER)
+        CLEAR: LS_GRHD,
+               LS_pghd,
+               LS_GRCD.
+        REFRESH:  LT_GRCD.
+        LS_komp-matnr    = GS_MARA-matnr.
+        LS_komp-j_3amgnr = GS_MARA-j_3apgnr.
+        CALL FUNCTION 'J_3A_GRID_DETERMINATION'
+          EXPORTING
+            date                 = sy-datum
+            header_communication = LS_komk
+            item_communication   = LS_komp
+            scheme               = GS_MARA-J_3AKALSV
+          IMPORTING
+            kondj_data           = LS_GRHD
+            j_3apghd_o           = LS_pghd
+          TABLES
+            kondjc_data          = LT_GRCD
+          EXCEPTIONS
+            not_found            = 1
+            OTHERS               = 2.
+
+        IF LS_pghd-j_3apgnr IS INITIAL.
+          LV_3apgnr = GS_MARA-j_3apgnr.
+        ELSE.
+          LV_3apgnr = LS_pghd-j_3apgnr.
+        ENDIF.
+*------ SELECT GRID
+        CLEAR: LS_pghd, LS_grid.
+        REFRESH: LT_grid.
+        CALL FUNCTION 'J_3A_SELECT_GRID'
+          EXPORTING
+            j_3apgnr_i = LV_3apgnr
+            j_3avdat_i = sy-datum
+          IMPORTING
+            j_3apghd_o = LS_pghd
+          TABLES
+            xj_3apgen  = LT_grid
+          EXCEPTIONS
+            no_grid    = 1
+            no_date    = 2
+            OTHERS     = 3.
+*------ get UPC list for material
+        refresh:  LT_MEAN.
+        select  MATNR J_3AKORDX MEINH
+                LFNUM EAN11
+            from MEAN into table LT_MEAN
+            where matnr = GS_MARA-MATNR.
+*------ build GT_SKU
+        clear:  lv_tabix.
+        LOOP AT LT_GRID assigning <GRID>.
+          clear:  gs_sku,
+                  lv_ean11,
+                  ls_mean.
+          lv_tabix = sy-tabix.
+          shift lv_tabix left deleting leading space.
+*-------- set primary key
+          gv_seq2 = gv_seq2 + 1.
+          GS_SKU-MANDT = sy-mandt.
+          GS_SKU-TECHSITE = gs_techsite-website.
+*          GS_SKU-VKORG = gv_vkorg.
+*          GS_SKU-VTWEG = gv_vtweg.
+*          GS_SKU-SPART = gv_spart.
+          GS_SKU-SEQ = gv_seq2.
+*-------- set remaining HDI fields
+          GS_SKU-ID = gv_seq2.
+          GS_SKU-LOCALEID = gc_localeid_EN.
+          GS_SKU-STYLE = GS_STYLE-STYLE.
+*          write:  GS_MARA-MATNR to GS_SKU-STYLE left-justified
+*                               using EDIT MASK '==ALPHA'.
+          concatenate GS_SKU-STYLE
+                      <GRID>-J_3AKORDX
+                  into GS_SKU-SKU.
+          GS_SKU-HOSTREF = GS_SKU-SKU.
+          GS_SKU-SKUALPHA = GS_SKU-STYLE.
+          GS_SKU-WEBSITE = GS_TECHSITE-PR_website.
+          GS_SKU-ATTRIBUTEVALUE1 = <GRID>-J_3AKORD1.
+          GS_SKU-ATTRIBUTEVALUE2 = <GRID>-J_3AKORD2.
+          GS_SKU-ATTRIBUTEVALUE3 = <GRID>-J_3AKORD3.
+*          GS_SKU-UNITMEASURE = GS_MARA-VRKME.
+**-------- minimum order qty
+*          write:  GS_MARA-AUMNG to GS_SKU-ORDERMINIMUM left-justified
+*                               unit GS_MARA-MEINS.
+**-------- order multiple
+*          write:  GS_MARA-SCMNG to GS_SKU-ORDERMULTIPLE left-justified
+*                               unit GS_MARA-SCHME.
+*-------- sort order
+          GS_SKU-SORTORDER = LV_TABIX.
+*-------- determine UPC number and format.
+          read table LT_MEAN assigning <MEAN>
+                             with key matnr = GS_MARA-MATNR
+                                      J_3AKORDX = <GRID>-J_3AKORDX.
+          if sy-subrc = 0.
+            call function 'CONVERSION_EXIT_EAN11_OUTPUT'
+                 exporting
+                      input  = <MEAN>-EAN11
+                 importing
+                      output = lv_ean11.
+            GS_SKU-UPC = lv_ean11.
+          endif.   "sy-subrc = 0  [ON  read table LT_MEAN...]
+          GS_SKU-DATEINSERTED = gv_dateinserted.
+** Fields currently unmapped
+*          GS_SKU-ATTRIBUTEVALUE4
+*          GS_SKU-ATTRIBUTEVALUE5
+*          GS_SKU-IMAGEFILESMALL
+*          GS_SKU-IMAGEFILEMEDIUM
+*          GS_SKU-IMAGEFILELARGE
+*          GS_SKU-ORDERMAXIMUM
+*          MOVE-CORRESPONDING:  GS_SKU TO LS_SKU.
+          APPEND:  gs_sku to gt_sku.
+*                   LS_SKU TO TA_SKU.
+        ENDLOOP.   "AT LT_GRID assigning <GRID>
+      ENDIF.    "SY-SUBRC = 0
+    ENDLOOP.   "AT TA_STYLE_LIST ASSIGNING <MATLIST>
+
+*-- REMOVE ALL SKU LINES THAT DON'T HAVE A UPC ASSIGNED.
+    DELETE:  GT_SKU WHERE UPC IS INITIAL.
+
+*-- REBUILD THE INDEXES
+    CLEAR:  GV_SEQ2.
+    LOOP AT GT_SKU ASSIGNING <SKU>.
+      CLEAR:  LS_SKU.
+      GV_SEQ2 = GV_SEQ2 + 1.
+      <SKU>-SEQ = GV_SEQ2.
+      <SKU>-ID = GV_SEQ2.
+*      MOVE-CORRESPONDING:  <SKU> TO LS_SKU.
+*      APPEND LS_SKU TO TA_SKU.
+    ENDLOOP.   "AT GT_SKU ASSIGNING <SKU>
+
+*-- ALSO SAVE STYLE AND SKU TO DATABASE
+*-- Insert SKU records
+    PERFORM DELETE_DB_ROWS  USING GS_TECHSITE-WEBSITE
+                                  'ZTXX_PR_SKU'
+                         CHANGING GV_SUBRC.
+    IF GV_SUBRC = 0.
+      INSERT ZTXX_PR_SKU FROM TABLE GT_SKU.
+      IF SY-SUBRC = 0.
+        COMMIT WORK.
+      ELSE.
+*------ Records failed to be inserted
+        ROLLBACK WORK.
+        GV_MSGID = 'SKU'.
+        PERFORM SET_RETURN_MESSAGE USING 'E' GV_MSGID '100'
+                                         SPACE SPACE SPACE SPACE
+                              CHANGING   GS_RET1.
+        APPEND GS_RET1 TO TA_RETURN.
+      ENDIF.
+    ELSE.
+*---- RECORDS FAILED TO BE DELETED
+      MESSAGE E101(ZPLUMRIVER) WITH 'SKU'.
+      GV_MSGID = 'SKU'.
+      PERFORM SET_RETURN_MESSAGE USING 'E' GV_MSGID '101'
+                                       SPACE SPACE SPACE SPACE
+                            CHANGING   GS_RET1.
+      APPEND GS_RET1 TO TA_RETURN.
+    ENDIF.
+
+*-- Insert STYLE records
+    PERFORM DELETE_DB_ROWS  USING GS_TECHSITE-WEBSITE
+                                  'ZTXX_PR_STYLE'
+                         CHANGING GV_SUBRC.
+    IF GV_SUBRC = 0.
+      INSERT ZTXX_PR_STYLE FROM TABLE GT_STYLE.
+      IF SY-SUBRC = 0.
+        COMMIT WORK.
+      ELSE.
+*------ Records failed to be inserted
+        ROLLBACK WORK.
+        GV_MSGID = 'STYLE'.
+        PERFORM SET_RETURN_MESSAGE USING 'E' GV_MSGID '100'
+                                         SPACE SPACE SPACE SPACE
+                              CHANGING   GS_RET1.
+        APPEND GS_RET1 TO TA_RETURN.
+      ENDIF.
+    ELSE.
+*---- RECORDS FAILED TO BE DELETED
+      MESSAGE E101(ZPLUMRIVER) WITH 'STYLE'.
+      GV_MSGID = 'SKU'.
+      PERFORM SET_RETURN_MESSAGE USING 'E' GV_MSGID '101'
+                                       SPACE SPACE SPACE SPACE
+                            CHANGING   GS_RET1.
+      APPEND GS_RET1 TO TA_RETURN.
+    ENDIF.
+  ENDIF.   "GV_RC is initial
+
+* Create XML Return Tables
+* Style
+  IF TA_STYLE is supplied.
+    perform CREATE_XML  tables  TA_STYLE
+                                TA_RETURN
+                         using  GS_TECHSITE-website
+                                'STYLE'.
+  ENDIF.   "TA_STYLE is supplied
+
+* SKU
+  IF TA_SKU is supplied.
+    perform CREATE_XML  tables  TA_SKU
+                                TA_RETURN
+                         using  GS_TECHSITE-website
+                                'SKU'.
+  ENDIF.   "TA_SKU is supplied
+
+ENDFUNCTION.
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: 00
+*398   & & & &
+*
+* Message class: ZPLUMRIVER
+*101   No Update.  Deletion of &1 records failed.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

@@ -1,0 +1,757 @@
+***INCLUDE MZXPR_KODE_MAINTAINF01 .
+
+*----------------------------------------------------------------------*
+*   INCLUDE TABLECONTROL_FORMS                                         *
+*----------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*&      Form  USER_OK_TC                                               *
+*&---------------------------------------------------------------------*
+ FORM user_ok_tc USING    p_tc_name TYPE dynfnam
+                          p_table_name
+                          p_mark_name
+                 CHANGING p_ok      LIKE sy-ucomm.
+
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+   DATA: l_ok              TYPE sy-ucomm,
+         l_offset          TYPE i.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+* Table control specific operations                                    *
+*   evaluate TC name and operations                                    *
+   SEARCH p_ok FOR p_tc_name.
+   IF sy-subrc = 0.
+     l_offset = STRLEN( p_tc_name ) + 1.
+     l_ok = p_ok+l_offset.
+   ELSE.
+*--- check for custom okay code
+     IF p_ok(1) <> 'Z'.
+*----- not custom
+       EXIT.
+     ELSE.
+*----- Custom Screen menu option
+       IF p_ok = 'ZDELETE'.
+         l_ok = 'DELE'.
+       ELSE.
+         l_ok = p_ok.
+       ENDIF.
+     ENDIF.
+   ENDIF.
+* execute general and TC specific operations                           *
+   CASE l_ok.
+*--- Goto to Field Restriction Selection Screen (initial screen).
+     WHEN 'ZBACK'.
+       LEAVE TO SCREEN 50.
+       CLEAR:  p_ok.
+*--- Create NEW CODE row
+     WHEN 'ZNEW'.                      "new line
+       CLEAR: gs_kode.
+       gv_mode = 'HM'.    "Create with key field modification
+       gs_kode-techsite = gv_techsite.
+       gs_tmp = gs_kode.
+       SET SCREEN '0200'.
+       LEAVE SCREEN.
+       CLEAR p_ok.
+*--- Change Existing CODE row
+     WHEN 'ZCHANGE'.
+*       GET CURSOR FIELD GV_FIELDNAME
+*                  line GV_LISTLINE.
+       CLEAR: gs_kode.
+       READ TABLE g_tc_kode_itab ASSIGNING <itab>
+                                 WITH KEY flag = 'X'.
+       IF sy-subrc = 0.
+         READ TABLE gt_kode INTO gs_kode
+                               WITH KEY techsite = <itab>-techsite
+                                        salesorg = <itab>-salesorg
+                                        distchnl = <itab>-distchnl
+                                        division = <itab>-division
+                                        keyword = <itab>-keyword
+                                        code = <itab>-code
+                                        localeid = <itab>-localeid
+                                        qualf = <itab>-qualf
+                               BINARY SEARCH.
+         IF sy-subrc = 0.
+           gv_mode = 'VD'.      "Change/update with key display ONLY
+           gs_tmp = gs_kode.
+           SET SCREEN '0200'.
+           LEAVE SCREEN.
+         ELSE.
+*---------- do nothing... error occurred
+         ENDIF.   "sy-subrc = 0 [ON READ TABLE GT_KODE...]
+       ENDIF.
+       CLEAR p_ok.
+*--- COPY CODE row to create new row
+     WHEN 'ZCOPY'.                      "Copy
+       CLEAR: gs_kode.
+       gv_mode = 'CM'.    "Copy with key field modification
+       READ TABLE g_tc_kode_itab ASSIGNING <itab>
+                                 WITH KEY flag = 'X'.
+       IF sy-subrc = 0.
+*------- uncheck line marker
+         CLEAR: <itab>-flag.
+*------- get copy of CODE record to be updated
+         READ TABLE gt_kode INTO gs_kode
+                               WITH KEY techsite = <itab>-techsite
+                                        salesorg = <itab>-salesorg
+                                        distchnl = <itab>-distchnl
+                                        division = <itab>-division
+                                        keyword = <itab>-keyword
+                                        code = <itab>-code
+                                        localeid = <itab>-localeid
+                                        qualf = <itab>-qualf
+                               BINARY SEARCH.
+         CLEAR: gs_kode-description,
+                gs_kode-dateinserted.
+         gs_tmp = gs_kode.
+         SET SCREEN '0200'.
+         LEAVE SCREEN.
+       ELSE.
+         MESSAGE i200(zplumriver).
+       ENDIF.
+       CLEAR p_ok.
+     WHEN 'INSR'.                      "insert row
+       MESSAGE i201(zplumriver).
+*       PERFORM FCODE_INSERT_ROW USING    P_TC_NAME
+*                                         P_TABLE_NAME.
+       CLEAR p_ok.
+
+     WHEN 'DELE'.                      "delete row
+       PERFORM fcode_delete_row USING    p_tc_name
+                                         p_table_name
+                                         p_mark_name.
+       CLEAR p_ok.
+
+     WHEN 'P--' OR                     "top of list
+          'P-'  OR                     "previous page
+          'P+'  OR                     "next page
+          'P++'.                       "bottom of list
+       PERFORM compute_scrolling_in_tc USING p_tc_name
+                                             l_ok.
+       CLEAR p_ok.
+*     WHEN 'L--'.                       "total left
+*       PERFORM FCODE_TOTAL_LEFT USING P_TC_NAME.
+*
+*     WHEN 'L-'.                        "column left
+*       PERFORM FCODE_COLUMN_LEFT USING P_TC_NAME.
+*
+*     WHEN 'R+'.                        "column right
+*       PERFORM FCODE_COLUMN_RIGHT USING P_TC_NAME.
+*
+*     WHEN 'R++'.                       "total right
+*       PERFORM FCODE_TOTAL_RIGHT USING P_TC_NAME.
+*
+     WHEN 'MARK'.                      "mark all filled lines
+       PERFORM fcode_tc_mark_lines USING p_tc_name
+                                         p_table_name
+                                         p_mark_name   .
+       CLEAR p_ok.
+
+     WHEN 'DMRK'.                      "demark all filled lines
+       PERFORM fcode_tc_demark_lines USING p_tc_name
+                                           p_table_name
+                                           p_mark_name .
+       CLEAR p_ok.
+
+*     WHEN 'SASCEND'   OR
+*          'SDESCEND'.                  "sort column
+*       PERFORM FCODE_SORT_TC USING P_TC_NAME
+*                                   l_ok.
+
+   ENDCASE.
+
+ ENDFORM.                              " USER_OK_TC
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_INSERT_ROW                                         *
+*&---------------------------------------------------------------------*
+ FORM fcode_insert_row
+               USING    p_tc_name           TYPE dynfnam
+                        p_table_name             .
+
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+   DATA l_lines_name       LIKE feld-name.
+   DATA l_selline          LIKE sy-stepl.
+   DATA l_lastline         TYPE i.
+   DATA l_line             TYPE i.
+   DATA l_table_name       LIKE feld-name.
+   FIELD-SYMBOLS <tc>                 TYPE cxtab_control.
+   FIELD-SYMBOLS <table>              TYPE STANDARD TABLE.
+   FIELD-SYMBOLS <lines>              TYPE i.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+   ASSIGN (p_tc_name) TO <tc>.
+
+* get the table, which belongs to the tc                               *
+   CONCATENATE p_table_name '[]' INTO l_table_name. "table body
+   ASSIGN (l_table_name) TO <table>.                "not headerline
+
+* get looplines of TableControl
+   CONCATENATE 'G_' p_tc_name '_LINES' INTO l_lines_name.
+   ASSIGN (l_lines_name) TO <lines>.
+
+* get current line
+   GET CURSOR LINE l_selline.
+   IF sy-subrc <> 0.                   " append line to table
+     l_selline = <tc>-lines + 1.
+*&SPWIZARD: set top line and new cursor line                           *
+     IF l_selline > <lines>.
+       <tc>-top_line = l_selline - <lines> + 1 .
+     ELSE.
+       <tc>-top_line = 1.
+     ENDIF.
+   ELSE.                               " insert line into table
+     l_selline = <tc>-top_line + l_selline - 1.
+     l_lastline = <tc>-top_line + <lines> - 1.
+   ENDIF.
+*&SPWIZARD: set new cursor line                                        *
+   l_line = l_selline - <tc>-top_line + 1.
+* insert initial line
+   INSERT INITIAL LINE INTO <table> INDEX l_selline.
+   <tc>-lines = <tc>-lines + 1.
+* set cursor
+   SET CURSOR LINE l_line.
+
+ ENDFORM.                              " FCODE_INSERT_ROW
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_DELETE_ROW                                         *
+*&---------------------------------------------------------------------*
+ FORM fcode_delete_row
+               USING    p_tc_name           TYPE dynfnam
+                        p_table_name
+                        p_mark_name   .
+
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+   DATA l_table_name       LIKE feld-name.
+
+   FIELD-SYMBOLS <tc>         TYPE cxtab_control.
+   FIELD-SYMBOLS <table>      TYPE STANDARD TABLE.
+   FIELD-SYMBOLS <wa>         TYPE t_tc_kode.
+   FIELD-SYMBOLS <mark_field>.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+   ASSIGN (p_tc_name) TO <tc>.
+
+* get the table, which belongs to the tc                               *
+   CONCATENATE p_table_name '[]' INTO l_table_name. "table body
+   ASSIGN (l_table_name) TO <table>.                "not headerline
+
+* delete marked lines                                                  *
+   DESCRIBE TABLE <table> LINES <tc>-lines.
+
+   LOOP AT <table> ASSIGNING <wa>.
+
+*   access to the component 'FLAG' of the table header                 *
+     ASSIGN COMPONENT p_mark_name OF STRUCTURE <wa> TO <mark_field>.
+
+     IF <mark_field> = 'X'.
+*----- popup to confirm CODE text record deletion
+       CLEAR:  gv_answer,
+               gv_tabix.
+       gv_tabix = sy-tabix.
+       CALL FUNCTION 'POPUP_TO_CONFIRM'
+         EXPORTING
+           titlebar              = 'Confirm Record Deletion'(t02)
+           text_question         = 'Record will be deleted. Proceed?'(q02)
+           text_button_1         = 'Yes'(b01)
+           icon_button_1         = 'ICON_DELETE'
+           text_button_2         = 'No'(b02)
+           icon_button_2         = 'ICON_CANCEL'
+           default_button        = '1'
+           display_cancel_button = space
+         IMPORTING
+           answer                = gv_answer
+         EXCEPTIONS
+           text_not_found        = 1
+           OTHERS                = 2.
+       IF sy-subrc <> 0.
+         MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+                 WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+       ELSE.
+         IF gv_answer = '1'.   "YES
+*--------- User confirmed...Continue deletion process
+           MOVE-CORRESPONDING <wa> TO gs_kode. "copy before deleting
+*           DELETE <TABLE> INDEX SYST-TABIX.
+           DELETE <table> INDEX gv_tabix.
+           IF sy-subrc = 0.
+             gs_kode-mandt = sy-mandt.
+*----------- delete database entry
+             DELETE ztxx_pr_kode FROM gs_kode.
+             IF sy-subrc = 0.
+*------------- delete (internal) table entry from GT_KODE
+               READ TABLE gt_kode ASSIGNING <kode>
+                           WITH KEY  techsite = gs_kode-techsite
+                                     salesorg = gs_kode-salesorg
+                                     distchnl = gs_kode-distchnl
+                                     division = gs_kode-division
+                                     keyword = gs_kode-keyword
+                                     code = gs_kode-code
+                                     localeid = gs_kode-localeid
+                                     qualf = gs_kode-qualf
+                                BINARY SEARCH.
+               IF sy-subrc = 0.
+                 DELETE gt_kode INDEX sy-tabix.
+                 IF sy-subrc = 0.
+*----------------- Delete text if exists
+                   PERFORM set_textkey USING gs_kode
+                                    CHANGING gs_textkey.
+                   IF NOT gs_textkey IS INITIAL.
+                     PERFORM read_for_text USING gs_textkey
+                                        CHANGING gt_tline.
+                     IF NOT gt_tline[] IS INITIAL.
+                       PERFORM delete_text USING gs_textkey
+                                        CHANGING gv_subrc.
+                       PERFORM commit_text USING gs_textkey.
+                     ENDIF.   "NOT GT_TLINE[] is initial
+                   ENDIF.   "not GS_TEXTKEY is initial
+                 ELSE.
+*----------------- entry was NOT deleted from GT_KODE
+                   ROLLBACK WORK.
+                   MESSAGE e103(zplumriver) WITH 'GT_KODE'.
+                 ENDIF.   "sy-subrc = 0   [ON delete gt_KODE...]
+               ENDIF.   "sy-subrc = 0   [ON READ table gt_KODE]
+*------------ Details handled (including text)...Now okay to commit work
+               COMMIT WORK.
+             ELSE.
+               ROLLBACK WORK.
+               MESSAGE e102(zplumriver).
+             ENDIF.   "sy-subrc = 0   [ON DELETE ZTXX_PR_KODE]
+
+             <tc>-lines = <tc>-lines - 1.   "<== ONLY original line
+
+           ENDIF.
+         ELSE.
+*---------- Do nothing.
+         ENDIF.   "GV_ANSWER = '1'.   "YES
+       ENDIF.   "SY-SUBRC <> 0
+     ENDIF.
+   ENDLOOP.
+
+ ENDFORM.                              " FCODE_DELETE_ROW
+
+*&---------------------------------------------------------------------*
+*&      Form  COMPUTE_SCROLLING_IN_TC
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_TC_NAME  name of tablecontrol
+*      -->P_OK       ok code
+*----------------------------------------------------------------------*
+ FORM compute_scrolling_in_tc USING    p_tc_name
+                                       p_ok.
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+   DATA l_tc_new_top_line     TYPE i.
+   DATA l_tc_name             LIKE feld-name.
+   DATA l_tc_lines_name       LIKE feld-name.
+   DATA l_tc_field_name       LIKE feld-name.
+
+   FIELD-SYMBOLS <tc>         TYPE cxtab_control.
+   FIELD-SYMBOLS <lines>      TYPE i.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+   ASSIGN (p_tc_name) TO <tc>.
+* get looplines of TableControl
+   CONCATENATE 'G_' p_tc_name '_LINES' INTO l_tc_lines_name.
+   ASSIGN (l_tc_lines_name) TO <lines>.
+
+
+* is no line filled?                                                   *
+   IF <tc>-lines = 0.
+*   yes, ...                                                           *
+     l_tc_new_top_line = 1.
+   ELSE.
+*   no, ...                                                            *
+     CALL FUNCTION 'SCROLLING_IN_TABLE'
+          EXPORTING
+               entry_act             = <tc>-top_line
+               entry_from            = 1
+               entry_to              = <tc>-lines
+               last_page_full        = 'X'
+               loops                 = <lines>
+               ok_code               = p_ok
+               overlapping           = 'X'
+          IMPORTING
+               entry_new             = l_tc_new_top_line
+          EXCEPTIONS
+*              NO_ENTRY_OR_PAGE_ACT  = 01
+*              NO_ENTRY_TO           = 02
+*              NO_OK_CODE_OR_PAGE_GO = 03
+               OTHERS                = 0.
+   ENDIF.
+
+* get actual tc and column                                             *
+   GET CURSOR FIELD l_tc_field_name
+              AREA  l_tc_name.
+
+   IF syst-subrc = 0.
+     IF l_tc_name = p_tc_name.
+*     set actual column                                                *
+       SET CURSOR FIELD l_tc_field_name LINE 1.
+     ENDIF.
+   ENDIF.
+
+* set the new top line                                                 *
+   <tc>-top_line = l_tc_new_top_line.
+
+
+ ENDFORM.                              " COMPUTE_SCROLLING_IN_TC
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_TC_MARK_LINES
+*&---------------------------------------------------------------------*
+*       marks all TableControl lines
+*----------------------------------------------------------------------*
+*      -->P_TC_NAME  name of tablecontrol
+*----------------------------------------------------------------------*
+ FORM fcode_tc_mark_lines USING p_tc_name
+                                p_table_name
+                                p_mark_name.
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+   DATA l_table_name       LIKE feld-name.
+
+   FIELD-SYMBOLS <tc>         TYPE cxtab_control.
+   FIELD-SYMBOLS <table>      TYPE STANDARD TABLE.
+   FIELD-SYMBOLS <wa>.
+   FIELD-SYMBOLS <mark_field>.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+   ASSIGN (p_tc_name) TO <tc>.
+
+* get the table, which belongs to the tc                               *
+   CONCATENATE p_table_name '[]' INTO l_table_name. "table body
+   ASSIGN (l_table_name) TO <table>.                "not headerline
+
+* mark all filled lines                                                *
+   LOOP AT <table> ASSIGNING <wa>.
+
+*   access to the component 'FLAG' of the table header                 *
+     ASSIGN COMPONENT p_mark_name OF STRUCTURE <wa> TO <mark_field>.
+
+     <mark_field> = 'X'.
+   ENDLOOP.
+ ENDFORM.                                          "fcode_tc_mark_lines
+
+*&---------------------------------------------------------------------*
+*&      Form  FCODE_TC_DEMARK_LINES
+*&---------------------------------------------------------------------*
+*       demarks all TableControl lines
+*----------------------------------------------------------------------*
+*      -->P_TC_NAME  name of tablecontrol
+*----------------------------------------------------------------------*
+ FORM fcode_tc_demark_lines USING p_tc_name
+                                  p_table_name
+                                  p_mark_name .
+*-BEGIN OF LOCAL DATA--------------------------------------------------*
+   DATA l_table_name       LIKE feld-name.
+
+   FIELD-SYMBOLS <tc>         TYPE cxtab_control.
+   FIELD-SYMBOLS <table>      TYPE STANDARD TABLE.
+   FIELD-SYMBOLS <wa>.
+   FIELD-SYMBOLS <mark_field>.
+*-END OF LOCAL DATA----------------------------------------------------*
+
+   ASSIGN (p_tc_name) TO <tc>.
+
+* get the table, which belongs to the tc                               *
+   CONCATENATE p_table_name '[]' INTO l_table_name. "table body
+   ASSIGN (l_table_name) TO <table>.                "not headerline
+
+* demark all filled lines                                              *
+   LOOP AT <table> ASSIGNING <wa>.
+
+*   access to the component 'FLAG' of the table header                 *
+     ASSIGN COMPONENT p_mark_name OF STRUCTURE <wa> TO <mark_field>.
+
+     <mark_field> = space.
+   ENDLOOP.
+ ENDFORM.                                          "fcode_tc_mark_lines
+
+
+*&---------------------------------------------------------------------*
+*&      Form  SET_TEXTKEY
+*&---------------------------------------------------------------------*
+ FORM set_textkey USING    us_kode  LIKE gs_kode
+                  CHANGING ch_textkey LIKE gs_textkey.
+* Description:  Set the key values for Text Lookup
+
+   CLEAR:  ch_textkey.
+   IF NOT us_kode-description IS INITIAL.
+*-- text already exists??
+     ch_textkey = us_kode-description.
+   ELSE.
+     ch_textkey-tdobject = 'ZPLUMRIVER'.
+*-- text name will be primary key of record
+     CONCATENATE us_kode-techsite
+                 us_kode-salesorg
+                 us_kode-distchnl
+                 us_kode-division
+                 us_kode-keyword
+                 us_kode-code
+                 us_kode-localeid
+                 us_kode-qualf
+             INTO ch_textkey-tdname.
+     ch_textkey-tdid = 'COD1'.
+*-- need language associated with locality id
+     SELECT SINGLE spras
+         FROM ztxx_pr_localeid INTO ch_textkey-tdspras
+         WHERE localeid = us_kode-localeid.
+   ENDIF.   "NOT US_KODE-DESCRIPTION is initial
+
+ ENDFORM.                    " SET_TEXTKEY
+
+
+*&---------------------------------------------------------------------*
+*&      Form  READ_FOR_TEXT
+*&---------------------------------------------------------------------*
+ FORM read_for_text USING    us_textkey  LIKE gs_textkey
+                    CHANGING cht_tline   LIKE gt_tline.
+* DESCRIPTION:  Read for Text
+
+   REFRESH:  cht_tline.
+   CALL FUNCTION 'READ_TEXT'
+     EXPORTING
+       id                      = us_textkey-tdid
+       language                = us_textkey-tdspras
+       name                    = us_textkey-tdname
+       object                  = us_textkey-tdobject
+     TABLES
+       lines                   = cht_tline
+     EXCEPTIONS
+       id                      = 1
+       language                = 2
+       name                    = 3
+       not_found               = 4
+       object                  = 5
+       reference_check         = 6
+       wrong_access_to_archive = 7
+       OTHERS                  = 8.
+   IF sy-subrc <> 0.
+*-- do nothing
+*    MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*            WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+   ENDIF.
+
+ ENDFORM.                    " READ_FOR_TEXT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  DELETE_TEXT
+*&---------------------------------------------------------------------*
+ FORM delete_text USING    us_textkey  LIKE gs_textkey
+                  CHANGING ch_subrc    LIKE gv_subrc.
+* DESCRIPTION: Delete Code Description (text)
+
+* delete text
+   CALL FUNCTION 'DELETE_TEXT'
+     EXPORTING
+       id        = us_textkey-tdid
+       language  = us_textkey-tdspras
+       name      = us_textkey-tdname
+       object    = us_textkey-tdobject
+     EXCEPTIONS
+       not_found = 1
+       OTHERS    = 2.
+
+* Set return code and issue error message if failed
+   ch_subrc = sy-subrc.
+   IF ch_subrc <> 0.
+     MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+             WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+   ENDIF.
+
+ ENDFORM.                    " DELETE_TEXT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  COMMIT_TEXT
+*&---------------------------------------------------------------------*
+ FORM commit_text USING    us_textkey LIKE gs_textkey.
+* DESCRIPTION:  Commit text... in update task
+
+   CALL FUNCTION 'COMMIT_TEXT'
+     EXPORTING
+       object   = us_textkey-tdobject
+       name     = us_textkey-tdname
+       id       = us_textkey-tdid
+       language = us_textkey-tdspras.
+
+ ENDFORM.                    " COMMIT_TEXT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  DELETE_TEXT_FROM_BUFFER
+*&---------------------------------------------------------------------*
+ FORM delete_text_from_buffer USING    us_textkey  LIKE gs_textkey.
+* Delete text changes from buffer.
+
+   CALL FUNCTION 'DELETE_TEXT_FROM_CATALOG'
+     EXPORTING
+       object   = us_textkey-tdobject
+       name     = us_textkey-tdname
+       id       = us_textkey-tdid
+       language = us_textkey-tdspras.
+
+ ENDFORM.                    " DELETE_TEXT_FROM_BUFFER
+
+
+*&---------------------------------------------------------------------*
+*&      Form  MAINTAIN_TEXT
+*&---------------------------------------------------------------------*
+ FORM maintain_text USING    us_textkey LIKE gs_textkey
+                    CHANGING ch_kode LIKE gs_kode
+                             cht_tline  LIKE gt_tline
+                             ch_mode LIKE gv_mode.
+* DESCRIPTION:  CODE Description text.  If text exists, then change.
+*               Otherwise, create new text.
+
+*// Local Declarations
+   DATA:  lv_mode(1),   "(U)pdate; (I)nsert new text
+          lv_title TYPE ttxit-tdtext,
+          lv_tablesize TYPE i.
+
+* WORK AREA AND TABLE FOR TEXT(132)
+   DATA: BEGIN OF ls_textline,
+           line TYPE tline-tdline,
+         END OF ls_textline.
+
+   DATA:  lt_textline LIKE STANDARD TABLE OF ls_textline
+                      WITH NON-UNIQUE KEY line
+                      INITIAL SIZE 10.
+
+* local work areas for setting long text key
+   DATA:  ls_kode LIKE gs_kode,
+          ls_textkey LIKE gs_textkey.
+
+* SAPSCRIPT HEADER STRUCTURE
+   DATA:  ls_thead TYPE thead.
+
+* FIELD SYMBOLS
+   FIELD-SYMBOLS:  <tline> LIKE LINE OF cht_tline,
+                   <textline> LIKE ls_textline.
+
+*// Begin processing
+   IF NOT cht_tline[] IS INITIAL.
+*-- Text already exists, so prepare for modification.
+     lv_mode = 'U'.
+*-- Fill LT_TEXTLINE with initial values from UST_TLINE.
+     LOOP AT cht_tline ASSIGNING <tline>.
+       ls_textline-line = <tline>-tdline.
+       APPEND ls_textline TO lt_textline.
+     ENDLOOP.
+   ELSE.
+*-- may create new records...
+     lv_mode = 'I'.
+   ENDIF.
+
+* CALL TEXT EDITOR
+   CLEAR:  lv_title,
+           lv_tablesize.
+   lv_title = ch_kode-code.
+   CALL FUNCTION 'Z_XX_PR_TEXTEDIT'
+     EXPORTING
+       titel          = lv_title
+       i_row          = 5
+       i_column       = 20
+     TABLES
+       textlines      = lt_textline
+     EXCEPTIONS
+       user_cancelled = 1
+       OTHERS         = 2.
+   IF sy-subrc = 0.
+*-- PREPARE TO SAVE TEXT...NORMAL EXIT FROM Text Editor
+     REFRESH:  cht_tline.
+     LOOP AT lt_textline ASSIGNING <textline>.
+       lv_tablesize = lv_tablesize + 1.
+       CLEAR:  gs_tline.
+       IF sy-tabix = 1.
+         gs_tline-tdformat = '*'.      "DEFAULT FORMATTING
+       ENDIF.
+       gs_tline-tdline = <textline>-line.
+       APPEND gs_tline TO cht_tline.
+     ENDLOOP.
+*-- SAVE TEXT??
+*-- First, however, regenerate the Textkey in a local structure
+     IF us_textkey-tdobject = 'ZPLUMRIVER'.
+*---- longtext key already generated, copy to local structure
+       ls_textkey = us_textkey.
+     ELSE.
+*---- need to first generate the text key fo longtext
+       ls_kode = ch_kode.
+       CLEAR:  ls_kode-description.   "<-- force key generation
+       PERFORM set_textkey USING ls_kode
+                        CHANGING ls_textkey.
+     ENDIF.   "US_TEXTKEY-TDOBJECT = 'ZPLUMRIVER'
+*-- SAVE text... but how to store??  Long or short text?
+     IF lv_tablesize > 1.
+*------ SAVE LONG TEXT  (text is greater than 132 characters long)
+       CLEAR: ls_thead.
+       ls_thead-tdobject = ls_textkey-tdobject.
+       ls_thead-tdname = ls_textkey-tdname.
+       ls_thead-tdid = ls_textkey-tdid.
+       ls_thead-tdspras = ls_textkey-tdspras.
+       CALL FUNCTION 'SAVE_TEXT'
+         EXPORTING
+           header                = ls_thead
+*          INSERT                = ' '
+         TABLES
+           lines                 =  cht_tline
+         EXCEPTIONS
+           id                    = 1
+           language              = 2
+           name                  = 3
+           object                = 4
+           OTHERS                = 5.
+       IF sy-subrc = 0.
+         ch_kode-mandt = sy-mandt.
+*------ maintain flags and indicators
+         gx_text = 'X'.
+         ch_kode-description = ls_textkey.
+         CLEAR:  gs_tmp-description.   "<== ensures text change noticed
+*        CH_MODE+1(1) = 'D'.
+       ELSE.
+         MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+                 WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+       ENDIF.   "SY-SUBRC = 0  [ON  CALL FUNCTION 'SAVE_TEXT']
+     ELSE.
+*---- Short Text is saved directly in DB field (Description)
+       IF lv_mode = 'U'.
+*------ Attempt to delete longtext (it may or may not exist).
+         CALL FUNCTION 'DELETE_TEXT'
+           EXPORTING
+             id                    = ls_textkey-tdid
+             language              = ls_textkey-tdspras
+             name                  = ls_textkey-tdname
+             object                = ls_textkey-tdobject
+*            SAVEMODE_DIRECT       = 'X'
+           EXCEPTIONS
+             not_found             = 1
+             OTHERS                = 2.
+         IF sy-subrc = 0.
+*-------- maintain flags and indicators
+           gx_text = 'X'.
+         ELSE.
+*-------- Deletion failed... but do nothing
+         ENDIF.   "SY-SUBRC = 0   [ON  CALL FUNCTION 'DELETE_TEXT']
+       ENDIF.   "LV_MODE = 'U'
+*---- now, set short text
+       IF lv_tablesize = 0.
+*------ no description text
+         CLEAR:  ch_kode-description.
+       ELSE.
+         READ TABLE lt_textline ASSIGNING <textline>
+                                INDEX 1.
+         IF sy-subrc = 0.
+           ch_kode-description = <textline>-line.
+         ELSE.
+           CLEAR:  ch_kode-description.
+         ENDIF.   "sy-subrc = 0  [ON READ TABLE LT_TEXTLINE...]
+       ENDIF.   "lv_tablesize = 0
+     ENDIF.   "lv_tablesize > 1.
+   ELSE.
+*-- NO SAVE...  Likely, user cancelled the editing process.
+   ENDIF.   "SY-SUBRC = 0 [after EDITOR CALL]
+
+ ENDFORM.                    " MAINTAIN_TEXT
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

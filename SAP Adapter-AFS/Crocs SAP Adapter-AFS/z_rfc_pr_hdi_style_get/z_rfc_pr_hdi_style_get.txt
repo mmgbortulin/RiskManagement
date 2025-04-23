@@ -1,0 +1,74 @@
+FUNCTION Z_RFC_PR_HDI_STYLE_GET.
+*"----------------------------------------------------------------------
+*"*"Local interface:
+*"  IMPORTING
+*"     VALUE(I_WEBSITE) TYPE  ZPLUMRIVER_WEBSITE
+*"     VALUE(I_VKORG) TYPE  VKORG DEFAULT '%'
+*"     VALUE(I_VTWEG) TYPE  VTWEG DEFAULT '%'
+*"     VALUE(I_SPART) TYPE  SPART DEFAULT '%'
+*"     VALUE(I_ROWS) TYPE  SYTABIX OPTIONAL
+*"  TABLES
+*"      TA_STYLE STRUCTURE  ZSXX_PR_STYLE
+*"      TA_RETURN STRUCTURE  BAPIRET1
+*"----------------------------------------------------------------------
+*=======================================================================
+* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*  PlumRiver LLC
+*  Version 2.0.00
+*  Delivered:  February 23, 2011
+* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*=======================================================================
+
+*//  Local Declarations
+
+*//  Begin Processing
+* Initialize tables and set values for parameters
+  PERFORM INITIALIZE_GLOBALS_TOP.
+* Get technical (SAP) websites
+  PERFORM GET_TECHSITES TABLES GT_TECHSITE
+                               TA_RETURN
+                        using  I_WEBSITE
+                     CHANGING  GV_RC.
+  IF GV_RC is initial.
+    GV_ROWS = i_rows.
+*-- Get STYLE data
+    Select *
+        from ZTXX_PR_STYLE  up to GV_ROWS rows
+        into corresponding fields of table TA_STYLE
+        for all entries in GT_TECHSITE
+        where techsite = GT_TECHSITE-WEBSITE   and
+              vkorg LIKE i_vkorg    and
+              vtweg LIKE i_vtweg    and
+              spart LIKE i_spart.
+    if sy-subrc = 0.
+*---- successful retrieval of records.
+      gv_msgid = 'ZPLUMRIVER'.
+      write: sy-dbcnt to gv_msgv1 left-justified.
+      perform SET_RETURN_MESSAGE using 'S' gv_msgid '003'
+                                       gv_msgv1 space space space
+                            changing   gs_ret1.
+      append gs_ret1 to ta_return.
+    else.
+*---- no records returned.
+      gv_msgid = 'ZPLUMRIVER'.
+      perform SET_RETURN_MESSAGE using 'E' gv_msgid '099'
+                                       space space space space
+                            changing   gs_ret1.
+      append gs_ret1 to ta_return.
+    endif.
+  ENDIF.   "GV_RC is initial
+
+ENDFUNCTION.
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: 00
+*398   & & & &
+*
+* Message class: ZPLUMRIVER
+*101   No Update.  Deletion of &1 records failed.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

@@ -1,0 +1,159 @@
+FUNCTION z_rfc_pr_table_key_getlist.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(I_TABLECODE) TYPE  ZPLUMRIVER_HDITABNAME
+*"     VALUE(I_WEBSITE) TYPE  ZPLUMRIVER_WEBSITE DEFAULT '%'
+*"     VALUE(I_VKORG) TYPE  VKORG DEFAULT '%'
+*"     VALUE(I_VTWEG) TYPE  VTWEG DEFAULT '%'
+*"     VALUE(I_SPART) TYPE  SPART DEFAULT '%'
+*"     VALUE(I_DAYS) TYPE  I OPTIONAL
+*"  EXPORTING
+*"     VALUE(E_TABLECODE) TYPE  ZPLUMRIVER_HDITABNAME
+*"     VALUE(E_COUNT) TYPE  CHAR10
+*"  TABLES
+*"      TA_TABKEY STRUCTURE  ZSXX_PR_TABLEKEY OPTIONAL
+*"      TA_RETURN STRUCTURE  BAPIRET1 OPTIONAL
+*"----------------------------------------------------------------------
+*=======================================================================
+* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*  PlumRiver LLC
+*  Version 2.0.00
+*  Delivered:  October 20, 2011
+* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*=======================================================================
+  TYPES: BEGIN OF t_date,
+         sign   TYPE char1,
+         option TYPE char2,
+         low    TYPE zplumriver_dateinserted,
+         high   TYPE zplumriver_dateinserted,
+         END OF t_date.
+
+  DATA: it_date TYPE TABLE OF t_date,
+        it_data TYPE TABLE OF zsxx_pr_tabkey.
+
+  DATA: wa_data TYPE zsxx_pr_tabkey,
+        wa_date TYPE t_date,
+        wa_tab  TYPE zsxx_pr_tablekey.
+*//  Local Declarations
+  DATA:  ls_tabkey TYPE zsxx_pr_tabkey,
+         lv_techsite TYPE ztxx_pr_website-website.
+
+  DATA: l_from_date TYPE sy-datum.
+  CONSTANTS: c_i       TYPE char1  VALUE 'I',
+             c_bt      TYPE char2  VALUE 'BT',
+             c_invoice TYPE char7  VALUE 'INVOICE',
+             c_invline TYPE char12 VALUE 'INVOICE_LINE',
+             c_ordack  TYPE char9  VALUE 'ORDER_ACK',
+             c_orderal TYPE char14 VALUE 'ORDER_ACK_LINE',
+             c_ordhdr  TYPE char12 VALUE 'ORDER_HEADER',
+             c_ordline TYPE char10 VALUE 'ORDER_LINE',
+             c_timestart TYPE syuzeit VALUE '000000',  "start of day
+             c_timefinish TYPE syuzeit VALUE '235959'. "end of day
+
+  CLEAR: it_date,wa_date.
+*//  Begin Processing
+* Return table code (HDI table)
+  e_tablecode = i_tablecode.
+
+* Initialize tables and set values for parameters
+  PERFORM initialize_globals_top.
+* Get technical (SAP) websites
+  PERFORM get_techsites TABLES gt_techsite
+                               ta_return
+                        USING  i_website
+                     CHANGING  gv_rc.
+  IF gv_rc IS INITIAL.
+    CLEAR: gv_dbcnt.
+*-- determine name of table to be transferred
+    PERFORM get_tablename TABLES ta_return
+                           USING i_tablecode
+                        CHANGING gv_tabname.
+    IF NOT gv_tabname IS INITIAL.
+      l_from_date = sy-datum - i_days.
+      wa_date-sign  = c_i.
+      wa_date-option = c_bt.
+      CONCATENATE l_from_date c_timestart INTO wa_date-low.
+      CONCATENATE sy-datum c_timefinish  INTO wa_date-high.
+      APPEND wa_date TO it_date.
+      IF i_tablecode EQ c_invoice OR
+         i_tablecode EQ c_invline.
+
+        SELECT mandt techsite vkorg
+                     vtweg spart seq
+                  FROM (gv_tabname)
+                  INTO TABLE ta_tabkey
+                  FOR ALL ENTRIES IN gt_techsite
+                  WHERE techsite = gt_techsite-website AND
+                        vkorg LIKE i_vkorg                 AND
+                        vtweg LIKE i_vtweg                 AND
+                        spart LIKE i_spart                 AND
+                        dateinserted IN it_date.
+        DESCRIBE TABLE ta_tabkey LINES gv_dbcnt.
+      ELSEIF i_tablecode EQ c_ordack OR
+        i_tablecode EQ c_orderal OR
+        i_tablecode EQ c_ordhdr  OR
+        i_tablecode EQ c_ordline.
+        SELECT mandt techsite vkorg
+                     vtweg spart seq
+                  FROM (gv_tabname)
+                  INTO TABLE ta_tabkey
+                  FOR ALL ENTRIES IN gt_techsite
+                  WHERE techsite = gt_techsite-website AND
+                        vkorg LIKE i_vkorg                 AND
+                        vtweg LIKE i_vtweg                 AND
+                        spart LIKE i_spart                 AND
+                        dateinserted IN it_date.
+        DESCRIBE TABLE ta_tabkey LINES gv_dbcnt.
+      ELSE.
+*---- determine name of table to be transferred
+        SELECT mandt techsite vkorg
+               vtweg spart seq
+            FROM (gv_tabname)
+            INTO TABLE ta_tabkey
+            FOR ALL ENTRIES IN gt_techsite
+            WHERE techsite = gt_techsite-website     AND
+                  vkorg LIKE i_vkorg                 AND
+                  vtweg LIKE i_vtweg                 AND
+                  spart LIKE i_spart.
+        IF sy-subrc = 0.
+          gv_dbcnt = sy-dbcnt.
+        ENDIF.   "SY-SUBRC = 0
+      ENDIF.
+    ELSE.
+*---- TABLE CODE IS NOT VALID.
+      gv_msgid = 'ZPLUMRIVER'.
+      gv_msgv1 = i_tablecode.
+      PERFORM set_return_message USING 'E' gv_msgid '014'
+                                       gv_msgv1 space space space
+                            CHANGING   gs_ret1.
+      APPEND gs_ret1 TO ta_return.
+    ENDIF.   "NOT GV_TABNAME IS INITIAL
+*-- Send final Message to Return TABLE for messages (Success/Failure)
+    IF NOT ta_tabkey[] IS INITIAL.
+*---- successful retrieval of records.
+      gv_msgid = 'ZPLUMRIVER'.
+      WRITE: gv_dbcnt TO gv_msgv1 LEFT-JUSTIFIED.
+      PERFORM set_return_message USING 'S' gv_msgid '003'
+                                       gv_msgv1 space space space
+                            CHANGING   gs_ret1.
+      APPEND gs_ret1 TO ta_return.
+    ELSE.
+*---- no records returned.
+      gv_msgid = 'ZPLUMRIVER'.
+      PERFORM set_return_message USING 'E' gv_msgid '099'
+                                       space space space space
+                            CHANGING   gs_ret1.
+      APPEND gs_ret1 TO ta_return.
+    ENDIF.   "NOT TA_TABKEY[] IS INITIAL
+  ENDIF.   "GV_RC is initial
+
+* return record count
+  WRITE:  gv_dbcnt TO e_count
+                   NO-GROUPING
+                   LEFT-JUSTIFIED.
+
+ENDFUNCTION.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

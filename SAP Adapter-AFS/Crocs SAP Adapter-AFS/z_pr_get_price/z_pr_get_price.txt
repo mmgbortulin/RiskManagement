@@ -1,0 +1,650 @@
+FUNCTION z_pr_get_price.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(PI_I_SPR) LIKE  PISPR STRUCTURE  PISPR
+*"     VALUE(PI_USE_BUFFER) TYPE  C DEFAULT 'X'
+*"     REFERENCE(AUART_SD) TYPE  AUART OPTIONAL
+*"     REFERENCE(LAND1) TYPE  LAND1 OPTIONAL
+*"  EXPORTING
+*"     VALUE(PE_I_SPR) LIKE  PESPR STRUCTURE  PESPR
+*"     VALUE(PE_I_KOMK) LIKE  KOMK STRUCTURE  KOMK
+*"     VALUE(PE_I_KOMP) LIKE  KOMP STRUCTURE  KOMP
+*"  TABLES
+*"      PE_T_KOMV STRUCTURE  KOMV OPTIONAL
+*"      PE_T_LIFE STRUCTURE  LIFE OPTIONAL
+*"      PE_T_SCALE STRUCTURE  CONDSCALE OPTIONAL
+*"  EXCEPTIONS
+*"      MATERIAL_NOT_FOUND
+*"      NO_AUTHORITY
+*"      NO_BUKRS_FOUND
+*"      NO_SALES_PRICE_FOUND
+*"      ORG_STRUCTURE_NOT_COMPLETED
+*"      PLANT_NOT_FOUND
+*"      VKORG_NOT_FOUND
+*"      CALCULATION_SCHEME_NOT_CORRECT
+*"      PRICING_ERROR
+*"      OTHER_ERROR
+*"----------------------------------------------------------------------
+  DATA: kactv         LIKE tact-actvt,
+        prsfd         TYPE c,
+        prsfi_ksteu_c LIKE sy-marky,
+        subrc         LIKE sy-subrc,
+        vkomv_tabix   LIKE sy-tabix,
+        tabix_start   LIKE sy-tabix,
+        tabix_stop    LIKE sy-tabix.
+  DATA: i_pispr LIKE pispr,
+        i_komk  LIKE komk,
+        i_komp  LIKE komp,
+        i_t001  LIKE t001,
+        i_tvko  LIKE tvko,
+        i_tvkov LIKE tvkov,
+        i_t001w LIKE t001w,
+        i_tvta  LIKE tvta,
+        i_mara  LIKE mara,
+        i_marm  LIKE marm,
+        i_mvke  LIKE mvke,
+        i_mlan  LIKE mlan,
+        i_marc  LIKE marc,
+        i_kuagv LIKE kuagv,
+        i_wrf6  LIKE wrf6,
+        i_t134  LIKE t134.
+*---- T_KNUMH (Tabelle zum Ablegen von KNUMHs) ------------------------*
+  DATA: t_knumh LIKE cond_knumh OCCURS 0 WITH HEADER LINE,
+*---- T_XKONP (Tabelle zum Ablegen von KONP-Saetzen) ------------------*
+        t_xkonp LIKE konp OCCURS 0 WITH HEADER LINE,
+*---- T_VKOMV (tables with transaction conditions of pricing) ---------*
+        t_vkomv LIKE komv OCCURS 0 WITH HEADER LINE.
+* field-symbols: <fkomv> like komv.
+
+*
+*-Variables for note 575625
+*
+  DATA    l_use_buffer(1) TYPE c VALUE yes.
+*-If any one of the following fields change, we always do a
+*-repricing.
+  STATICS: BEGIN OF s_i_pispr_extract,
+             matnr LIKE pispr-matnr,
+             vkorg LIKE pispr-vkorg,
+             vtweg LIKE pispr-vtweg,
+             werks LIKE pispr-werks,
+             pltyp LIKE pispr-pltyp,
+             mgame LIKE pispr-mgame,
+             vrkme LIKE pispr-vrkme,
+             kbetr LIKE pispr-kbetr,
+             kwaer LIKE pispr-kwaer,
+             kpein LIKE pispr-kpein,
+             kmein LIKE pispr-kmein,
+             kkurs LIKE pispr-kkurs,
+             wminr LIKE pispr-wminr,
+             aktnr LIKE pispr-aktnr,
+             vorga LIKE pispr-vorga,
+             kappl LIKE komk-kappl,
+             kalsm LIKE komk-kalsm,
+             prsdt LIKE komk-prsdt,
+             waerk LIKE komk-waerk,
+             kurst LIKE komk-kurst,
+           END OF s_i_pispr_extract.
+*-Temp. comparison struct for repricing decision
+  DATA l_i_pispr_extract LIKE s_i_pispr_extract.
+*-Does s_i_pispr_extract-kalsm contain user defined formulas?
+  STATICS s_user_defined_formulas(1) TYPE c.
+*-Steps of current pricing procedure
+  DATA    l_t_t683s       TYPE TABLE OF t683s.
+  FIELD-SYMBOLS <t683s>   TYPE t683s.
+*-komk/komp fields possibly accessed by last pricing procedure
+*-evaluation
+  STATICS s_t_accs TYPE TABLE OF accs.
+  FIELD-SYMBOLS <accs>    TYPE accs.
+*-communication structure for module access_fields_get
+  DATA l_t_kschl TYPE TABLE OF kschl_key.
+  DATA l_i_kschl TYPE kschl_key.
+*-Variables for the comparison of specific komk/komp fields of
+*-current vs. last call
+  DATA l_curr_var_name(70) TYPE c.
+  DATA l_last_var_name(70) TYPE c.
+  FIELD-SYMBOLS <l_curr>.
+  FIELD-SYMBOLS <l_last>.
+*-Communication structures of previous call
+  STATICS s_i_komp LIKE komp.
+  STATICS s_i_komk LIKE komk.
+*-Conditions found in the last call
+  STATICS s_t_komv_spr LIKE komv OCCURS 0.
+*-Export structure of last call
+  STATICS s_i_pespr TYPE pespr.
+
+* Initialize export tables --------------------------------------------*
+  REFRESH: pe_t_life, pe_t_komv, pe_t_scale.
+
+* Take over imported parameters into internal work area ---------------*
+  i_pispr = pi_i_spr.
+
+*----------------------------------------------------------------------*
+* Program logic
+*----------------------------------------------------------------------*
+
+* Complete necessary material and org level data for pricing -> PISPR -*
+  CALL FUNCTION 'PISPR_FILL'
+    EXPORTING
+      pi_bukrs_lesen              = yes
+      pi_matnr_lesen              = yes
+      pi_vrkme_lesen              = yes
+      pi_wrf6_lesen               = yes
+      pi_stack                    = no
+    IMPORTING
+      pe_i_t001                   = i_t001
+      pe_i_t001w                  = i_t001w
+      pe_i_tvko                   = i_tvko
+      pe_i_tvkov                  = i_tvkov
+      pe_i_tvta                   = i_tvta
+      pe_i_mara                   = i_mara
+      pe_i_marm                   = i_marm
+      pe_i_mvke                   = i_mvke
+      pe_i_mlan                   = i_mlan
+      pe_i_kuagv                  = i_kuagv
+      pe_i_wrf6                   = i_wrf6
+      pe_i_t134                   = i_t134
+    CHANGING
+      px_i_spr                    = i_pispr
+    EXCEPTIONS
+      plant_not_found             = 1
+      org_structure_not_completed = 2
+      vkorg_not_found             = 3
+      no_bukrs_found              = 4
+      material_not_found          = 5
+      OTHERS                      = 6.
+* Error handling for completing material and org level data for pricing
+  CASE sy-subrc.
+    WHEN 0.
+    WHEN 1.
+      MESSAGE ID     sy-msgid
+              TYPE   sy-msgty
+              NUMBER sy-msgno
+              WITH   sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+              RAISING plant_not_found.
+    WHEN 2.
+      MESSAGE ID     sy-msgid
+              TYPE   sy-msgty
+              NUMBER sy-msgno
+              WITH   sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+      RAISING org_structure_not_completed.
+    WHEN 3.
+      MESSAGE ID     sy-msgid
+
+              TYPE   sy-msgty
+              NUMBER sy-msgno
+              WITH   sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+      RAISING vkorg_not_found.
+    WHEN 4.
+      MESSAGE ID     sy-msgid
+              TYPE   sy-msgty
+              NUMBER sy-msgno
+              WITH   sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+      RAISING no_bukrs_found.
+    WHEN 5.
+      MESSAGE ID     sy-msgid
+              TYPE   sy-msgty
+              NUMBER sy-msgno
+              WITH   sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+      RAISING material_not_found.
+    WHEN 6.
+      MESSAGE ID     sy-msgid
+              TYPE   sy-msgty
+              NUMBER sy-msgno
+              WITH   sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+      RAISING other_error.
+  ENDCASE.
+
+* Schema zur Ermittlung des VK-Preises bestimmen ----------------------*
+  IF i_pispr-vkals IS INITIAL.
+*-- Schemafindung aufrufen --------------------------------------------*
+    PERFORM vkp_schemafindung USING i_pispr-vkorg i_pispr-vtweg
+                                    i_tvta-spart i_kuagv-kalks kvewe_a
+                                    i_pispr-vkals subrc.
+  ENDIF.
+*-No pricing procedure? --> give up!
+  IF i_pispr-vkals IS INITIAL.
+    RAISE calculation_scheme_not_correct.
+  ENDIF.
+*-At this point, the pricing procedure is always filled
+
+*                                                     BEGIN NOTE 1110129
+  IF NOT i_mvke-pmatn IS INITIAL.     "Preismaterial ist gefuellt
+    IF NOT i_mara-attyp IS INITIAL.  "Artikel (z.B. Var. v. Sammelart.)
+      i_pispr-matnr = i_mvke-pmatn.
+    ELSE.                           "Standardmaterial
+      PERFORM marc_single_read USING i_pispr-matnr i_pispr-werks i_marc
+                                     subrc.
+      IF i_marc-stdpd IS INITIAL. "keine werksspezifische Variante
+        i_pispr-matnr = i_mvke-pmatn.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+*                                                       END NOTE 1110129
+
+* PESPR aus PISPR fuellen ---------------------------------------------*
+  CLEAR pespr.
+  MOVE-CORRESPONDING i_pispr TO pespr.
+
+  CLEAR i_pispr-vknum.                "Vorlaeufig immer löschen
+* Set the flag which kind of pricing should be executed ---------------*
+  IF i_t134-wmakg EQ '2'.
+    prsfd = 'A'.                      "pricing for empties
+  ELSE.
+    prsfd = yes.                      "standard pricing
+  ENDIF.
+* Fill the communication structures KOMK und KOMP for pricing ---------*
+  CALL FUNCTION 'WV_KOMK_FILL_V'
+    EXPORTING
+      pi_i_spr   = i_pispr
+      pi_i_t001  = i_t001
+      pi_i_t001w = i_t001w
+      pi_i_tvko  = i_tvko
+      pi_i_tvkov = i_tvkov
+      pi_i_tvta  = i_tvta
+      pi_i_kuagv = i_kuagv
+      pi_vorga   = i_pispr-vorga
+    IMPORTING
+      pe_i_komk  = i_komk
+    EXCEPTIONS
+      OTHERS     = 0.
+* pass ORder type and country
+  i_komk-auart_sd = auart_sd.
+  i_komk-augru = v_augru.
+
+*pass discount code and pricing code
+  SELECT SINGLE j_3akvgr7      "sub channel
+                j_3akvgr9      "discount code
+                j_3akvgr10     "priceing code
+         FROM  knvv
+         INTO (i_komk-zzj_3akvgr7, i_komk-zzj_3akvgr9, i_komk-zzj_3akvgr10)
+         WHERE  kunnr  = i_komk-kunnr
+         AND    vkorg  = i_komk-vkorg
+         AND    vtweg  = i_komk-vtweg
+         AND    spart  = i_komk-spart.
+
+*{   DELETE         TSDK905521                                        1
+*\  i_komk-zzland_soldto = land1.
+*}   DELETE
+*
+  CALL FUNCTION 'WV_KOMP_FILL_V'
+    EXPORTING
+      pi_kposn   = maxkposn
+      pi_prsfd   = prsfd
+      pi_i_spr   = i_pispr
+      pi_i_t001w = i_t001w
+      pi_i_wrf6  = i_wrf6
+      pi_i_t001  = i_t001
+      pi_i_mara  = i_mara
+      pi_i_mvke  = i_mvke
+      pi_i_marm  = i_marm
+      pi_i_mlan  = i_mlan
+      pi_i_komk  = i_komk
+      pi_vorga   = i_pispr-vorga
+    IMPORTING
+      pe_i_komp  = i_komp
+    EXCEPTIONS
+      OTHERS     = 0.
+*-Differences in selected pispr fields always invalidate buffer
+*-Fill fields for comparison.
+*-Always fill these fields: buffering may be desired for the next call!
+  CLEAR l_i_pispr_extract.
+  MOVE-CORRESPONDING i_pispr TO l_i_pispr_extract.
+  l_i_pispr_extract-kappl = i_komk-kappl.
+  l_i_pispr_extract-kalsm = i_komk-kalsm.
+  l_i_pispr_extract-prsdt = i_komk-prsdt.
+  l_i_pispr_extract-waerk = i_komk-waerk.
+  l_i_pispr_extract-kurst = i_komp-kursk.
+  IF i_komp-spart IS INITIAL.
+    i_komp-spart = i_komk-spart.
+  ENDIF.
+  IF i_komp-zzextwg IS INITIAL.
+    i_komp-zzextwg = v_extwg.
+  ENDIF.
+  IF i_komp-j_3asize IS INITIAL.
+    i_komp-j_3asize = v_grid_size.
+  ENDIF.
+*-Did the pricing procedure ... change? Is this the first call?
+*-Buffering switched off?
+  IF   ( l_i_pispr_extract <> s_i_pispr_extract )
+    OR ( pi_use_buffer = no ).
+*---Do not use the buffer.
+    l_use_buffer            = no.
+    s_user_defined_formulas = no.
+    REFRESH s_t_accs.
+*---Remember comparison fields for next call
+    s_i_pispr_extract = l_i_pispr_extract.
+  ELSE.
+*---Try to use the buffer
+    l_use_buffer = yes.
+  ENDIF.
+*-Read information about access fields, if necessary
+  IF    ( l_use_buffer = yes           )
+    AND ( s_t_accs[] IS INITIAL        )
+    AND ( s_user_defined_formulas = no ).
+*---Read the steps of the pricing procedure
+    CALL FUNCTION 'SD_T683S_SINGLE_READ'
+      EXPORTING
+        kvewe_i       = kvewe_a
+        kappl_i       = s_i_pispr_extract-kappl
+        kalsm_i       = s_i_pispr_extract-kalsm
+        count_i       = '100'
+      TABLES
+        t683s_tab_io  = l_t_t683s
+      EXCEPTIONS
+        invalid_input = 1
+        OTHERS        = 2.
+*---No steps found? --> Give up!
+    IF sy-subrc <> 0.
+      RAISE calculation_scheme_not_correct.
+    ENDIF.
+*---Fill interface table of affected condition types
+    LOOP AT l_t_t683s ASSIGNING <t683s>.
+*-----Ensure that the current step accesses a condition record
+      CHECK NOT <t683s>-kschl IS INITIAL.
+*-----User defined formulas? --> Repricing
+      IF ( <t683s>-kofrm >= '600' ) OR ( <t683s>-kofra >= '600' ).
+        s_user_defined_formulas = yes.
+        REFRESH s_t_accs[].
+        EXIT.
+      ENDIF.
+*-----Fill the key structure
+      l_i_kschl-kvewe = <t683s>-kvewe.
+      l_i_kschl-kappl = <t683s>-kappl.
+      l_i_kschl-kschl = <t683s>-kschl.
+*-----Rem: kschl can occur at most once in a given pricing procedure
+      APPEND l_i_kschl TO l_t_kschl.
+    ENDLOOP.
+    IF s_user_defined_formulas = no.
+*-----Determine list of accessed fields
+      CALL FUNCTION 'ACCESS_FIELDS_GET'
+        TABLES
+          pi_t_kschl = l_t_kschl
+          pe_t_accs  = s_t_accs.
+*-----Eliminate comparisons with literals
+      DELETE s_t_accs WHERE NOT qudiw IS INITIAL.
+*-----Eliminate comparisons with non-key fields
+      DELETE s_t_accs WHERE (     qufna IS INITIAL
+                              AND qustr IS INITIAL
+                              AND qudiw IS INITIAL
+                            ).
+*-----Condense the s_t_accs table
+      SORT s_t_accs BY qustr qufna.
+      DELETE ADJACENT DUPLICATES FROM s_t_accs COMPARING qustr qufna.
+    ENDIF.
+  ENDIF.
+*-Now we know in table s_t_accs which komk and komp fields are
+*-used for condition record access when the pricing procedure
+*-pispr-vkals is used.
+*-Now do the s_i_komk <--> komk or the s_i_komp <--> komp comparison
+*-for each field.
+*-If all values of this call are identical to those of the last call,
+*-we can just return the result of the last call and skip the costly
+*-call of pricing.
+  LOOP AT s_t_accs ASSIGNING <accs>.
+*---Form the current field name.
+    CONCATENATE 'I_' <accs>-qustr '-' <accs>-qufna INTO
+       l_curr_var_name.
+*---Form the field name of last calls storage.
+    CONCATENATE 'S_' l_curr_var_name        INTO l_last_var_name.
+*---Prepare for indirect value access
+    ASSIGN (l_curr_var_name) TO <l_curr>.
+    IF NOT <l_curr> IS ASSIGNED.
+*-----The assign failed: To play safe, do not read from the buffer
+      l_use_buffer = no.
+      EXIT.
+    ENDIF.
+*---Prepare for indirect value access
+    ASSIGN (l_last_var_name) TO <l_last>.
+    IF NOT <l_last> IS ASSIGNED.
+*-----The assign failed: To play safe, do not read from the buffer
+      l_use_buffer = no.
+      EXIT.
+    ENDIF.
+    IF <l_last> <> <l_curr>.
+*-----Different field values: Redo the pricing!
+      l_use_buffer = no.
+      EXIT.
+    ENDIF.
+  ENDLOOP.
+
+*-In user defined formulas any field of komk / komp can be referenced.
+*-We force a repricing.
+  IF s_user_defined_formulas = yes.
+    l_use_buffer = no.
+  ENDIF.
+
+* Aufruf ist mit letztem Aufruf identisch --> Puffer benutzen ---------*
+  IF l_use_buffer = yes.
+*-- Feldleiste PE_I_SPR aus Puffer fuellen ----------------------------*
+    IF i_pispr-nexkz EQ no.
+      pe_i_spr = s_i_pespr.
+      pe_i_spr-matnr = i_pispr-matnr.
+    ENDIF.
+*-- Feldleisten PE_I_KOMK, PE_I_KOMP aus Puffer fuellen ---------------*
+    pe_i_komk = s_i_komk.
+    pe_i_komp = s_i_komp.
+*-- Tabelle PE_T_LIFE aus Puffer fuellen ------------------------------*
+    IF pe_t_life IS REQUESTED.
+      pe_t_life[] = g_t_lifel_to_vkals-t_life[].
+    ENDIF.
+*-- Tabelle PE_T_KOMV aus Puffer fuellen ------------------------------*
+    IF i_pispr-tabkz EQ yes.
+      pe_t_komv[] = s_t_komv_spr[].
+    ENDIF.
+*-- Baustein verlassen ------------------------------------------------*
+    EXIT.
+  ENDIF.
+
+* Variantenkonfigurationen lesen und in V61A stellen ------------------*
+  PERFORM pricing_load_variant_keys USING i_mara i_komk i_komp "1110129
+                                    subrc.                  "1110129
+  CHECK subrc EQ 0.                                         "1110129
+
+* Now do the pricing with reading conditions from database ------------*
+  CALL FUNCTION 'PRICING'
+    EXPORTING
+      calculation_type = ksteu_b
+      comm_head_i      = i_komk
+      comm_item_i      = i_komp
+    IMPORTING
+      comm_head_e      = i_komk
+      comm_item_e      = i_komp
+    TABLES
+      tkomv            = t_vkomv
+    EXCEPTIONS
+      error_message    = 04
+      OTHERS           = 04.
+* Fehler in der Preisfindung (auch S- und E-Meldungen) ----------------*
+  IF sy-subrc NE 0 OR
+     ( ( pispr-prerr EQ yes ) AND
+       ( ( sy-msgty EQ msgty_e ) OR
+         ( ( sy-msgty EQ msgty_s ) AND
+           ( sy-msgid EQ 'V1' OR sy-msgid EQ 'VH' OR sy-msgid EQ 'KM'
+             OR sy-msgid EQ 'F5' OR sy-msgid EQ 'FS' )
+         )       " message type S
+       ) ) .     " given message type, flag 'Process error' set
+*-- Fehlermeldung dynamisch aufbauen ----------------------------------*
+    MESSAGE ID sy-msgid
+            TYPE msgty_e
+            NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+            RAISING pricing_error.
+  ENDIF.
+
+* Nettopreis wurde vorgegeben -----------------------------------------*
+  IF NOT i_pispr-kbetr IS INITIAL AND NOT i_pispr-kwaer IS INITIAL AND
+     NOT i_pispr-kpein IS INITIAL AND NOT i_pispr-kmein IS INITIAL.
+*-- Grundpreis in G_T_VKOMV suchen ------------------------------------*
+    PERFORM tkomv_finden_grundpreis TABLES t_vkomv
+                                    USING  i_pispr-vknum maxkposn
+                                           kappl_v i_pispr-vkals
+                                           vkomv_tabix subrc.
+*-- Fehlerbehandlung --------------------------------------------------*
+    IF subrc NE 0 OR vkomv_tabix IS INITIAL.
+*---- Exception ausloesen ---------------------------------------------*
+      MESSAGE e196 WITH i_pispr-vkals kappl_v kalsm_vk_fili
+                   RAISING calculation_scheme_not_correct.
+    ENDIF.
+*-- T_VKOMV-Felder fuellen --------------------------------------------*
+    t_vkomv-kbetr = i_pispr-kbetr.
+    t_vkomv-waers = i_pispr-kwaer.
+    t_vkomv-kpein = i_pispr-kpein.
+    t_vkomv-kmein = i_pispr-kmein.
+    t_vkomv-kherk = 'C'.
+    IF t_vkomv-kmein EQ i_komp-vrkme.                       "795426
+      t_vkomv-kumza = i_komp-umvkz.                         "795426
+      t_vkomv-kumne = i_komp-umvkn.                         "795426
+    ELSE.
+      CLEAR: t_vkomv-kumza, t_vkomv-kumne.
+    ENDIF.
+*-- G_T_VKOMV modifizieren --------------------------------------------*
+    MODIFY t_vkomv INDEX vkomv_tabix.
+*-- Do the pricing with the imported sales price ----------------------*
+    CALL FUNCTION 'PRICING'
+      EXPORTING
+        calculation_type = ksteu_a
+        comm_head_i      = i_komk
+        comm_item_i      = i_komp
+      IMPORTING
+        comm_head_e      = i_komk
+        comm_item_e      = i_komp
+      TABLES
+        tkomv            = t_vkomv
+      EXCEPTIONS
+        error_message    = 04
+        OTHERS           = 04.
+*-- Fehler in der Preisfindung (auch S- und E-Meldungen) --------------*
+    IF sy-subrc NE 0 OR
+       ( ( pispr-prerr EQ yes ) AND
+         ( ( sy-msgty EQ msgty_e ) OR
+           ( ( sy-msgty EQ msgty_s ) AND
+             ( sy-msgid EQ 'V1' OR sy-msgid EQ 'VH' OR sy-msgid EQ 'KM'
+               OR sy-msgid EQ 'F5' OR sy-msgid EQ 'FS' )
+           )       " message type S
+         ) ) .     " given message type, flag 'Process error' set
+*---- Fehlermeldung dynamisch aufbauen --------------------------------*
+      MESSAGE ID sy-msgid
+              TYPE msgty_e
+              NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+              RAISING pricing_error.
+    ENDIF.
+  ENDIF.
+
+* Don't read retail-customizing for retail pricing for external callers*
+  IF i_pispr-vorga NE '50'.
+*   Determine list fields with posting and cond. types for sales prices*
+    PERFORM condtypes_for_orglevel USING i_pispr.
+  ENDIF.
+
+*----------------------------------------------------------------------*
+* Fill export parameters
+*----------------------------------------------------------------------*
+
+*-Take over promotion number ----------------------------------------*
+  IF NOT i_komp-aktnr IS INITIAL.
+    pespr-aktnr = i_komp-aktnr.
+  ENDIF.
+*-Take over indicator for price fixing from sales data of material --*
+  pespr-pbind = i_mvke-pbind.
+
+  IF i_pispr-vorga NE '50'.
+*---Struktur PESPR fuellen --------------------------------------------*
+    PERFORM pespr_fuellen TABLES t_vkomv
+                          USING  g_t_lifel_to_vkals-vksch
+                                 g_t_lifel_to_vkals-vksch_ewu
+                                 g_t_lifel_to_vkals-aksch
+                                 g_t_lifel_to_vkals-aksch_ewu
+                                 i_komk-knumv i_komp-kposn
+                                 i_pispr-kbetr i_pispr-kpein
+                                 tabix_start tabix_stop
+                                 pespr
+                                 subrc.
+    IF subrc NE 0 AND i_pispr-nexkz EQ no.
+*------ Kein Verkaufspreis in den Stammkonditionen vorhanden ----------*
+      MESSAGE e101 RAISING no_sales_price_found.
+    ENDIF.
+  ELSE.
+* - Start- und Stop-Tabix ermitteln ---------------------------------*
+    PERFORM tkomv_tabix_start_stop TABLES t_vkomv
+                               USING  i_komk-knumv i_komp-kposn
+                                      tabix_start tabix_stop
+                                      subrc.
+  ENDIF.
+
+*---buffer export structure
+  s_i_pespr = pespr.
+
+* Exp.-Strukt. PE_I_SPR soll gefuellt werden --------------------------*
+  IF i_pispr-nexkz EQ no.
+*-- Berechtigung pruefen ----------------------------------------------*
+    IF i_pispr-authc EQ yes.
+*---- Konditionsarten-Berechtigung zum Verkaufspreis pruefen ----------*
+      PERFORM berechtigung_pruefen_kschl USING pespr-vksch kactv subrc.
+*---- Keine Berechtigung vorhanden ------------------------------------*
+      IF subrc NE 0 OR kactv EQ actvt_keine.
+*------ Exception ausloesen -------------------------------------------*
+        RAISE no_authority.
+      ENDIF.
+    ENDIF.
+*-- Exp.-Strukt. PE_I_SPR und Puffer G_I_PESPR fuellen ----------------*
+    pe_i_spr = pespr.
+  ENDIF.
+
+* Fill exp. structures PE_I_KOMK/PE_I_KOMP and buffer G_I_KOMK/G_I_KOMP
+  pe_i_komk = i_komk.
+  pe_i_komp = i_komp.
+  s_i_komk = i_komk.
+  s_i_komp = i_komp.
+
+* Tabelle PE_T_LIFE fuellen -------------------------------------------*
+  IF pe_t_life IS REQUESTED.
+    pe_t_life[] = g_t_lifel_to_vkals-t_life[].
+  ENDIF.
+
+*-Extract pertinent KOMV entries into s_t_komv_spr[]
+  CLEAR s_t_komv_spr[].
+  IF NOT tabix_start IS INITIAL AND NOT tabix_stop IS INITIAL.
+    APPEND LINES OF t_vkomv FROM tabix_start TO tabix_stop
+                            TO s_t_komv_spr.
+  ENDIF.
+
+* Exp.-Tab. PE_T_KOMV und Puffer G_T_KOMV_SPR fuellen -----------------*
+  IF i_pispr-tabkz EQ yes.
+    pe_t_komv[] = s_t_komv_spr[].
+  ENDIF.
+
+* Fill export table PE_T_SCALE with scales data of conditions ---------*
+  IF i_pispr-scalr EQ yes.
+*-- Collect condition record numbers in internal table T_KNUMH --------*
+    REFRESH t_knumh.
+    LOOP AT pe_t_komv WHERE NOT knumh IS INITIAL.
+      t_knumh-knumh = pe_t_komv-knumh.
+      APPEND t_knumh.
+    ENDLOOP.
+*-- Table T_KNUMH has entries ----------------------------------------*
+    IF NOT t_knumh[] IS INITIAL.
+      SORT t_knumh BY knumh.
+      DELETE ADJACENT DUPLICATES FROM t_knumh.
+*---- Read the scales data: PE_T_SCALE is filled by subroutine -------*
+      PERFORM sd_konp_select TABLES t_knumh t_xkonp pe_t_scale
+                             USING subrc.
+    ENDIF.
+  ENDIF.              " export scales data of conditions
+
+ENDFUNCTION.                                 " SALES_PRICE_READ
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: WV
+*097   Plant &1 does not exist
+*101   No sales price available in master conditions
+*196   Calculation schema &1 of appl. &2 contains no manual condition type
+*604   Function module &1 does not exist
+*801   Select lines
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

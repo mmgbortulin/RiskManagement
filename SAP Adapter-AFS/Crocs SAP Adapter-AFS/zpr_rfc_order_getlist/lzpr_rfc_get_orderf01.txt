@@ -1,0 +1,2269 @@
+*----------------------------------------------------------------------*
+***INCLUDE LZPR_RFC_GET_ORDERF01.
+*----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      Form  GET_SALES_ORDERS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_GT_VBMTV  text
+*      -->P_SOLD_TO  text
+*      -->P_FROM_DATE  text
+*      -->P_TO_DATE  text
+*      -->P_FROM_ORDER  text
+*      -->P_TO_ORDER  text
+*----------------------------------------------------------------------*
+*form get_sales_orders  tables   pt_vbmtv structure svbmtv_trvog
+FORM get_sales_orders  TABLES   pr_sales_org STRUCTURE zspr_vkorg
+                                pr_dis_ch    STRUCTURE zspr_vtweg
+                                pr_division  STRUCTURE zspr_spart
+                                pr_ord_type  STRUCTURE zspr_auart
+                       USING    p_sold_to
+                                p_from_date
+                                p_to_date
+                                p_from_order
+                                p_to_order
+                                p_open_orders
+                                p_idoc_search
+                                p_from_weborder
+                                p_to_weborder
+                                p_custpo
+                                p_style
+                                p_ship_to
+                                p_from_ship_date
+                                p_to_ship_date.
+
+  DATA: l_open_orders TYPE char1.
+
+  l_open_orders = p_open_orders.
+
+*SOLD TO
+  IF p_sold_to IS NOT INITIAL.
+    CLEAR: gr_kunnr[],
+           gs_kunnr.
+    gs_kunnr-sign = 'I'.
+    gs_kunnr-option = 'EQ'.
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+      EXPORTING
+        input  = p_sold_to
+      IMPORTING
+        output = gs_kunnr-low.
+    APPEND gs_kunnr TO gr_kunnr.
+  ENDIF.
+
+*DATE
+  CLEAR gs_erdat.
+  READ TABLE gr_erdat INTO gs_erdat INDEX 1.
+  gs_erdat-sign = 'I'.
+  gs_erdat-option = 'BT'.
+  IF p_from_date IS NOT INITIAL.
+    gs_erdat-low = p_from_date.
+  ENDIF.
+  IF p_to_date IS NOT INITIAL.
+    gs_erdat-high = p_to_date.
+  ELSE.
+    gs_erdat-high = sy-datum.
+  ENDIF.
+  REFRESH gr_erdat.
+  APPEND gs_erdat TO gr_erdat.
+
+  IF p_idoc_search IS NOT INITIAL.
+    PERFORM get_idoc_order TABLES gr_vbeln
+                          USING p_from_order
+                                p_to_order.
+  ELSE.
+*order No
+    IF p_from_order IS NOT INITIAL OR p_to_order IS NOT INITIAL.
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+        EXPORTING
+          input  = p_from_order
+        IMPORTING
+          output = p_from_order.
+
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+        EXPORTING
+          input  = p_to_order
+        IMPORTING
+          output = p_to_order.
+      gs_vbeln-sign = 'I'.
+      gs_vbeln-option = 'EQ'.
+      gs_vbeln-low = p_from_order.
+      gs_vbeln-high = p_to_order.
+      APPEND gs_vbeln TO gr_vbeln.
+    ENDIF.
+  ENDIF.
+
+*Sales Org
+  IF pr_sales_org[] IS NOT INITIAL.
+    CLEAR: gr_vkorg[],
+           gs_vkorg.
+    LOOP AT pr_sales_org.
+      gs_vkorg-sign = 'I'.
+      gs_vkorg-option = 'EQ'.
+      gs_vkorg-low = pr_sales_org-vkorg.
+      APPEND gs_vkorg TO gr_vkorg.
+    ENDLOOP.
+  ENDIF.
+
+*Dist Channel
+  IF pr_dis_ch[] IS NOT INITIAL.
+    CLEAR: gr_vtweg[],
+           gs_vtweg.
+    LOOP AT pr_dis_ch.
+      gs_vtweg-sign = 'I'.
+      gs_vtweg-option = 'EQ'.
+      gs_vtweg-low = pr_dis_ch-vtweg.
+      APPEND gs_vtweg TO gr_vtweg.
+    ENDLOOP.
+  ENDIF.
+
+*Division
+  IF pr_division[] IS NOT INITIAL.
+    CLEAR: gr_spart[],
+           gs_spart.
+    LOOP AT pr_division.
+      gs_spart-sign = 'I'.
+      gs_spart-option = 'EQ'.
+      gs_spart-low = pr_division-spart.
+      APPEND gs_spart TO gr_spart.
+    ENDLOOP.
+  ENDIF.
+
+*Order Type
+  IF pr_ord_type[] IS NOT INITIAL.
+    CLEAR: gr_auart[],
+           gs_auart.
+    LOOP AT pr_ord_type.
+      gs_auart-sign = 'I'.
+      gs_auart-option = 'EQ'.
+      gs_auart-low = pr_ord_type-auart.
+      APPEND gs_auart TO gr_auart.
+    ENDLOOP.
+  ENDIF.
+
+*Material
+  IF p_style IS NOT INITIAL.
+    IF p_style CA '*'.
+      gs_matnr-sign   = 'I'.
+      gs_matnr-option = 'CP'.
+    ELSE.
+      gs_matnr-sign   = 'I'.
+      gs_matnr-option = 'EQ'.
+    ENDIF.
+    CALL FUNCTION 'CONVERSION_EXIT_MATN1_INPUT'
+      EXPORTING
+        input  = p_style
+      IMPORTING
+        output = gs_matnr-low.
+    APPEND gs_matnr TO gr_matnr.
+  ENDIF.
+
+*SHIP DATE
+  IF p_from_ship_date IS NOT INITIAL OR p_to_ship_date IS NOT INITIAL.
+    CLEAR: gr_vdatu[],
+           gs_vdatu.
+    gs_vdatu-option = 'BT'.
+    gs_vdatu-sign = 'I'.
+    gs_vdatu-low = p_from_ship_date.
+    IF p_to_ship_date IS INITIAL.
+      gs_vdatu-high = '99999999'.
+    ELSE.
+      gs_vdatu-high = p_to_ship_date.
+    ENDIF.
+    APPEND gs_vdatu TO gr_vdatu.
+  ENDIF.
+
+*Ship TO
+  IF p_ship_to IS NOT INITIAL.
+    CLEAR: gr_shipto[],
+           gs_shipto.
+    gs_shipto-sign = 'I'.
+    gs_shipto-option = 'EQ'.
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+      EXPORTING
+        input  = p_ship_to
+      IMPORTING
+        output = gs_shipto-low.
+    APPEND gs_shipto TO gr_shipto.
+  ENDIF.
+
+*CUST PO
+  IF p_custpo IS NOT INITIAL.
+    IF p_custpo CA '*'.
+      gs_bstkd-option = 'CP'.
+      gs_bstkd-sign   = 'I'.
+    ELSE.
+      gs_bstkd-option = 'EQ'.
+      gs_bstkd-sign   = 'I'.
+    ENDIF.
+    gs_bstkd-low = p_custpo.
+    APPEND gs_bstkd TO gr_bstkd.
+  ENDIF.
+
+*web order No
+  IF p_from_weborder IS NOT INITIAL OR p_to_weborder IS NOT INITIAL.
+    IF p_from_weborder CA '*'.
+      gs_ihrez-sign   = 'I'.
+      gs_ihrez-option = 'CP'.
+    ELSE.
+      gs_ihrez-sign   = 'I'.
+      gs_ihrez-option = 'EQ'.
+    ENDIF.
+    gs_ihrez-low = p_from_weborder.
+    gs_ihrez-high = p_to_weborder.
+    APPEND gs_ihrez TO gr_ihrez.
+  ELSE.
+    gr_ihrez[] = gr_ihrez[].
+  ENDIF.
+
+  PERFORM get_open_orders TABLES gr_vbeln
+                                 gt_open_qty
+                                 gt_order
+                          USING  l_open_orders.
+
+ENDFORM.                    " GET_SALES_ORDERS
+*&---------------------------------------------------------------------*
+*&      Form  LOAD_ORD_HEADER
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_GT_VBMTV  text
+*      -->P_ORD_HDR  text
+*----------------------------------------------------------------------*
+FORM load_ord_header  TABLES   pt_order STRUCTURE gs_order
+                               pt_open_qty STRUCTURE gs_open_qty
+*                               pt_lvbmtv structure vbmtv
+                               pt_ord_hdr
+                      USING    p_website.
+
+  TYPES: BEGIN OF typ_vbuk,
+           vbeln TYPE vbeln,
+           lfgsk TYPE vbuk-lfgsk,
+           gbstk TYPE vbuk-gbstk,
+         END OF typ_vbuk.
+
+  DATA: lt_vbuk TYPE TABLE OF typ_vbuk,
+        ls_vbuk TYPE typ_vbuk.
+
+  DATA: ls_ord_hdr TYPE zsxx_pr_orderheader.
+
+  DATA: ls_open_qty TYPE typ_open_qty,
+        ls_order    TYPE typ_order.
+
+  SELECT vbeln
+         lfgsk
+         gbstk FROM  vbuk INTO TABLE lt_vbuk
+         FOR ALL ENTRIES IN pt_order
+         WHERE  vbeln  = pt_order-vbeln.
+  SORT lt_vbuk BY vbeln.
+
+  SORT pt_order BY vbeln.
+
+  LOOP AT pt_order INTO ls_order.
+
+    CLEAR ls_ord_hdr.
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+      EXPORTING
+        input  = ls_order-vbeln
+      IMPORTING
+        output = ls_ord_hdr-orderno.
+
+
+    ls_ord_hdr-localeid = '1033'.
+    ls_ord_hdr-hostref = ls_ord_hdr-orderno.
+*    ls_ord_hdr-orderno              = LS_ORDER-vbeln.
+    ls_ord_hdr-website              = p_website.
+    ls_ord_hdr-salesorg             = ls_order-vkorg.
+    ls_ord_hdr-division             = ls_order-spart.
+    ls_ord_hdr-ordertype            = ls_order-auart.
+    ls_ord_hdr-custpotype           = ls_order-bsark.
+*    ls_ord_hdr-custpono             = ls_order-bstnk.  "20 char
+    READ TABLE gt_vbkd ASSIGNING FIELD-SYMBOL(<vbkd>) WITH KEY vbeln = ls_order-vbeln BINARY SEARCH.
+    IF sy-subrc = 0.
+      ls_ord_hdr-custpono = <vbkd>-bstkd.
+    ENDIF.
+*    ls_ord_hdr-custpono             = ls_order-bstdk.   "35 char
+    ls_ord_hdr-webordertype         = ls_order-bsark.
+    ls_ord_hdr-weborderno           = ls_order-ihrez.
+*    perform get_tracking_number tables lt_vbfa_del
+*                                       lt_vekp
+*                                changing ls_ord_hdr-trackingno.
+*      ls_ord_hdr-trackingno           = LS_ORDER-inhalt.
+    PERFORM format_timestamp  USING ls_order-audat
+                                    gc_timefinish
+                           CHANGING ls_ord_hdr-dateordered.
+    PERFORM format_timestamp  USING ls_order-vdatu
+                                    gc_timefinish
+                           CHANGING ls_ord_hdr-daterequested.
+*ls_ord_hdr-DATESHIPNOTBEFOR =
+*ls_ord_hdr-DATESHIPNOTAFTER =
+    PERFORM format_timestamp  USING ls_order-gueen
+                                    gc_timefinish
+                           CHANGING ls_ord_hdr-datecancelafter.
+*      perform get_customer_details using LS_ORDER-kunnr
+*                                         LS_ORDER-adrnr
+*                                   changing gs_kna1.
+*Sold To
+*    ls_ord_hdr-soldto               = LS_ORDER-kunnr.
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+      EXPORTING
+        input  = ls_order-kunnr
+      IMPORTING
+        output = ls_ord_hdr-soldto.
+
+*    clear ls_partner.
+*    read table lt_partner into ls_partner with key kunnr =  ls_order-kunnr.
+*    ls_ord_hdr-soldtoname           = ls_partner-name1.
+*    ls_ord_hdr-soldtoaddress1       = gs_kna1-address1.
+*    ls_ord_hdr-soldtoaddress2       = gs_kna1-address2.
+*    ls_ord_hdr-soldtoaddress3       = gs_kna1-address3.
+*    ls_ord_hdr-soldtocity           = gs_kna1-city.
+*    ls_ord_hdr-soldtoregion         = gs_kna1-region.
+*    ls_ord_hdr-soldtopostalcode     = gs_kna1-postalcode.
+*    ls_ord_hdr-soldtocountry        = gs_kna1-country.
+    ls_ord_hdr-buyer                = ls_order-bname.
+*ls_ord_hdr-EMAIL =
+*Ship To
+*    clear ls_partner.
+*    read table lt_partner into ls_partner with key vbeln = ls_order-vbeln posnr = '000000' parvw = 'WE' binary search.
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+      EXPORTING
+        input  = ls_order-shipto
+      IMPORTING
+        output = ls_ord_hdr-shipto.
+*    ls_ord_hdr-storeno =
+*    ls_ord_hdr-shiptoname           = LS_ORDER-zzname1_twe.
+*    ls_ord_hdr-shiptoaddress1       = gs_kna1-address1.
+*    ls_ord_hdr-shiptoaddress2       = gs_kna1-address2.
+*    ls_ord_hdr-shiptoaddress3       = gs_kna1-address3.
+*    ls_ord_hdr-shiptocity           = gs_kna1-city.
+*    ls_ord_hdr-shiptoregion         = gs_kna1-region.
+*    ls_ord_hdr-shiptopostalcode     = gs_kna1-postalcode.
+*    ls_ord_hdr-shiptocountry        = gs_kna1-country.
+*    clear ls_partner.
+*    read table lt_partner into ls_partner with key vbeln =  ls_order-vbeln posnr = '000000' parvw = 'ZS' binary search.
+*    ls_ord_hdr-storeno = ls_partner-kunnr..
+*Bill To
+*    clear ls_vbpa.
+*    read table lt_vbpa into ls_vbpa with key vbeln =  LS_ORDER-vbeln posnr = '000000' parvw = 'RE' binary search.
+*    perform get_customer_details using    ls_vbpa-kunnr
+*                                          ls_vbpa-adrnr
+*                                 changing gs_kna1.
+*    ls_ord_hdr-billto               = gs_kna1-kunnr.
+*    ls_ord_hdr-billtoname           = gs_kna1-name.
+*    ls_ord_hdr-billtoaddress1       = gs_kna1-address1.
+*    ls_ord_hdr-billtoaddress2       = gs_kna1-address1.
+*    ls_ord_hdr-billtoaddress3       = gs_kna1-address3.
+*    ls_ord_hdr-billtocity           = gs_kna1-city.
+*    ls_ord_hdr-billtoregion         = gs_kna1-region.
+*    ls_ord_hdr-billtopostalcode     = gs_kna1-postalcode.
+*    ls_ord_hdr-billtocountry        = gs_kna1-country.
+*    ls_ord_hdr-currency             = ls_order-waerk.
+    ls_ord_hdr-creditstatus          = ls_order-cmgst.
+
+    CLEAR ls_vbuk.
+    READ TABLE lt_vbuk INTO ls_vbuk WITH KEY vbeln = ls_order-vbeln BINARY SEARCH.
+    IF ls_vbuk-lfgsk = 'C' AND ls_vbuk-gbstk = 'C'.
+      ls_ord_hdr-orderstatus         = 'COMPLETE'.
+    ELSEIF ls_vbuk-lfgsk = 'B' AND ls_vbuk-gbstk = 'B'.
+      ls_ord_hdr-orderstatus         = 'PARTIAL'.
+    ELSE.
+      ls_ord_hdr-orderstatus         = 'OPEN'.
+    ENDIF.
+*    ls_ord_hdr-termscode            = ls_vbkd-zterm.
+*    ls_ord_hdr-termsdescription     = ls_vbkd-text1.
+*    clear ls_partner.
+*    read table lt_partner into ls_partner with key vbeln =  ls_order-vbeln posnr = '000000' parvw = 'ZD' binary search.
+*    if sy-subrc <> 0.
+*      read table lt_partner into ls_partner with key vbeln =  ls_order-vbeln posnr = '000000' parvw = 'XD' binary search.
+*    endif.
+*    ls_ord_hdr-shipmethodcode = ls_partner-kunnr.
+*    ls_ord_hdr-shipmethodtext = ls_partner-name1.
+*    clear ls_kna1.
+*    read table lt_kna1 into ls_kna1 with key kunnr = ls_vbpa-kunnr binary search.
+*    ls_ord_hdr-freighttermscode = ls_vbkd-inco1.
+*    ls_ord_hdr-freighttermstext = ls_vbkd-bezei.
+*      clear ls_tinct.
+*      read table lt_tinct into ls_tinct with key inco1 = ls_vbkd-inco1 binary search.
+*    clear ls_ord_hdr-totalunits.
+*    read table lt_tot_units into ls_tot_units with key vbeln = LS_ORDER-vbeln binary search.
+    CLEAR ls_open_qty.
+    READ TABLE pt_open_qty INTO ls_open_qty WITH KEY vbeln = ls_order-vbeln BINARY SEARCH.
+    ls_ord_hdr-totalunits           = ls_open_qty-qty.
+    IF ls_ord_hdr-totalunits < 0.
+      ls_ord_hdr-totalunits = 0.
+    ENDIF.
+*    ls_ord_hdr-discountwholesal =
+*    ls_ord_hdr-subtotalwholesal =
+*-- AFS Material
+    IF ls_open_qty-j_3anetw IS NOT INITIAL.
+      WRITE: ls_open_qty-j_3anetw TO ls_ord_hdr-subtotalnet CURRENCY ls_order-waerk NO-GROUPING.
+*-- STD Material
+    ELSE.
+      WRITE: ls_order-netwr TO ls_ord_hdr-subtotalnet
+                       CURRENCY ls_order-waerk
+                       NO-GROUPING.
+    ENDIF.
+*    endloop.
+
+*      ls_ord_hdr-subtotalnet          = LS_ORDER-netwr.
+*    ls_ord_hdr-dateinserted =
+    CONCATENATE sy-datum sy-uzeit INTO ls_ord_hdr-dateinserted.
+    APPEND ls_ord_hdr TO pt_ord_hdr.
+  ENDLOOP.
+
+
+
+ENDFORM.                    " LOAD_ORD_HEADER
+*&---------------------------------------------------------------------*
+*&      Form  FORMAT_TIMESTAMP
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_LS_VBAK_GUEEN  text
+*      -->P_GC_TIMEFINISH  text
+*      <--P_LS_ORD_HDR_DATECANCELAFTER  text
+*----------------------------------------------------------------------*
+FORM format_timestamp USING    us_date TYPE sydatum
+                               us_time TYPE syuzeit
+                      CHANGING ch_timestamp.
+* FORMAT TIMESTAMP FROM DATE (CCYYMMDD) AND TIME (HHMMSS).
+
+  IF us_date IS INITIAL.
+*-- NO DATE... SO RETURN BLANK TIMESTAMP VALUE
+    CLEAR: ch_timestamp.
+  ELSE.
+*-- FORMAT DATE/TIME
+    CONCATENATE us_date
+                us_time
+           INTO ch_timestamp.
+  ENDIF.
+
+ENDFORM.                    " FORMAT_TIMESTAMP
+*&---------------------------------------------------------------------*
+*&      Form  GET_CUSTOMER_DETAILS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_LS_VBTMV_ADRNR  text
+*      <--P_LS_KNA1  text
+*----------------------------------------------------------------------*
+FORM get_customer_details USING    p_kunnr
+                                   p_adrnr
+                          CHANGING ch_kna1 LIKE gs_kna1.
+* DESCRIPTION:  Get customer address
+*// Local Declaration
+  DATA:  lv_tabix(1)    TYPE n,                "table index
+         lx_street,                         "X: street found
+         lv_returnlines TYPE adrs-anzzl,
+         lt_adrtable    TYPE  szadr_printform_table.
+
+  DATA: BEGIN OF ls_adrc,
+          addrnumber TYPE adrc-addrnumber,
+          name1      TYPE adrc-name1,
+          name2      TYPE adrc-name2,
+          city1      TYPE adrc-city1,
+          post_code1 TYPE adrc-post_code1,
+          street     TYPE adrc-street,
+          str_suppl1 TYPE adrc-str_suppl1,
+          str_suppl2 TYPE adrc-str_suppl2,
+          str_suppl3 TYPE adrc-str_suppl3,
+          location   TYPE adrc-location,
+          country    TYPE adrc-country,
+          langu      TYPE adrc-langu,
+          region     TYPE adrc-region,
+        END OF ls_adrc.
+
+
+  FIELD-SYMBOLS:  <adr> LIKE LINE OF lt_adrtable.
+
+*-- Read for this customer/address
+  CLEAR: lx_street,
+         lv_tabix,
+         lv_returnlines,
+         lt_adrtable[].
+  CALL FUNCTION 'ADDRESS_INTO_PRINTFORM'
+    EXPORTING
+      address_type            = '1'
+      address_number          = p_adrnr
+      number_of_lines         = 6
+*     STREET_HAS_PRIORITY     = ' '
+    IMPORTING
+      number_of_used_lines    = lv_returnlines
+*     ADDRESS_NOT_FOUND       =
+      address_printform_table = lt_adrtable.
+  DELETE lt_adrtable WHERE line_type = 'O'  OR    "city/state/zip
+                           line_type = 'L'.       "country
+
+  LOOP AT lt_adrtable ASSIGNING <adr>.
+    lv_tabix = sy-tabix.
+    IF lv_tabix > 4.
+      EXIT.
+    ELSE.
+      IF <adr>-line_type = 'S'.
+        lx_street = 'X'.
+      ENDIF.
+*------ map name/address fields
+      CASE lv_tabix.
+        WHEN '1'.
+          ch_kna1-name     = <adr>-address_line.
+        WHEN '2'.
+          ch_kna1-address1 = <adr>-address_line.
+        WHEN '3'.
+          ch_kna1-address2 = <adr>-address_line.
+        WHEN '4'.
+          ch_kna1-address3 = <adr>-address_line.
+        WHEN OTHERS.
+      ENDCASE.
+    ENDIF.
+  ENDLOOP.   "AT LT_ADRTABLE assigning <ADR>
+  IF lx_street IS INITIAL.
+*---- street missing... need to find street.
+    READ TABLE lt_adrtable ASSIGNING <adr>
+                           WITH KEY line_type = 'S'.
+    IF sy-subrc = 0.
+      ch_kna1-address3 = <adr>-address_line.
+    ENDIF.   "sy-subrc = 0 [on read table lt_adrtable...]
+  ENDIF.   "lx_street is initial
+*-- Get rest of address details from ADRC
+  SELECT SINGLE  addrnumber name1 name2
+                 city1 post_code1 street
+                 str_suppl1 str_suppl2 str_suppl3
+                 location country langu
+                 region
+            FROM adrc INTO ls_adrc
+            WHERE addrnumber = p_adrnr.
+  IF sy-subrc = 0.
+    ch_kna1-kunnr      = p_kunnr.
+    ch_kna1-adrnr      = p_adrnr.
+    ch_kna1-city       = ls_adrc-city1.
+    ch_kna1-region     = ls_adrc-region.
+    ch_kna1-postalcode = ls_adrc-post_code1.
+    ch_kna1-country    = ls_adrc-country.
+  ENDIF.   "sy-subrc = 0 [ON SELECT SINGLE...FROM ADRC]
+
+ENDFORM.                    " GET_CUSTOMER_DETAILS
+*&---------------------------------------------------------------------*
+*&      Form  LOAD_ORDER_HEADER
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_GT_ORDER_HEADERS_OUT  text
+*      -->P_GT_PARTNERS_OUT  text
+*      -->P_ORD_HDR  text
+*      -->P_WEBSITE  text
+*----------------------------------------------------------------------*
+FORM load_order_header  TABLES   pt_ord_hdr            STRUCTURE zsxx_pr_orderheader
+                                 pt_ord_hdr_lines      STRUCTURE zsxx_pr_orderline
+                                 pt_order_business STRUCTURE bapisdbusi
+                                 pt_order_partners STRUCTURE bapisdpart
+                        USING    ps_order_header   STRUCTURE /afs/bapisdhd1
+                                 p_orderno
+                                 p_website.
+
+  DATA: ls_ord_hdr       TYPE zsxx_pr_orderheader,
+        ls_ord_hdr_lines TYPE zsxx_pr_orderline.
+
+
+*ls_ord_hdr-LOCALEID =
+  ls_ord_hdr-hostref              = p_orderno.
+  CLEAR gs_order_business_out.
+  READ TABLE pt_order_business INTO gs_order_business_out WITH KEY sd_doc = p_orderno
+                                                                       itm_number = '000000' BINARY SEARCH.
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+    EXPORTING
+      input  = p_orderno
+    IMPORTING
+      output = ls_ord_hdr-orderno.
+  ls_ord_hdr-website              = p_website.
+  ls_ord_hdr-salesorg             = ps_order_header-sales_org.
+  ls_ord_hdr-division             = ps_order_header-division.
+  ls_ord_hdr-ordertype            = ps_order_header-doc_type.
+  ls_ord_hdr-custpotype           = ps_order_header-po_method.
+  ls_ord_hdr-custpono             = ps_order_header-purch_no_c.
+  ls_ord_hdr-webordertype         = ps_order_header-po_method.
+  ls_ord_hdr-weborderno           = ps_order_header-ref_1.
+
+*ls_ord_hdr-TRACKINGNO = LS_ORDER-INHALT.
+  ls_ord_hdr-dateordered          = ps_order_header-doc_date.
+  ls_ord_hdr-daterequested        = ps_order_header-req_date_h.
+*ls_ord_hdr-DATESHIPNOTBEFOR =
+*ls_ord_hdr-DATESHIPNOTAFTER =
+  PERFORM format_timestamp  USING ps_order_header-cancel_date
+                                  gc_timefinish
+                         CHANGING ls_ord_hdr-datecancelafter.
+*Sold To
+  CLEAR gs_order_partners_out.
+  READ TABLE pt_order_partners INTO gs_order_partners_out WITH KEY sd_doc = p_orderno
+                                                                       itm_number = '000000'
+                                                                       partn_role = 'AG' BINARY SEARCH.
+  PERFORM get_customer_details USING  gs_order_partners_out-customer
+                                      gs_order_partners_out-address
+                               CHANGING gs_kna1.
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+    EXPORTING
+      input  = gs_order_partners_out-customer
+    IMPORTING
+      output = ls_ord_hdr-soldto.
+  ls_ord_hdr-soldtoname           = gs_kna1-name.
+  ls_ord_hdr-soldtoaddress1       = gs_kna1-address1.
+  ls_ord_hdr-soldtoaddress2       = gs_kna1-address2.
+  ls_ord_hdr-soldtoaddress3       = gs_kna1-address3.
+  ls_ord_hdr-soldtocity           = gs_kna1-city.
+  ls_ord_hdr-soldtoregion         = gs_kna1-region.
+  ls_ord_hdr-soldtopostalcode     = gs_kna1-postalcode.
+  ls_ord_hdr-soldtocountry        = gs_kna1-country.
+  ls_ord_hdr-buyer                = ps_order_header-name.
+*ls_ord_hdr-EMAIL =
+*Ship To
+  CLEAR gs_order_partners_out.
+  READ TABLE pt_order_partners INTO gs_order_partners_out WITH KEY sd_doc = p_orderno
+                                                                       itm_number = '000000'
+                                                                       partn_role = 'WE'.
+  PERFORM get_customer_details USING  gs_order_partners_out-customer
+                                      gs_order_partners_out-address
+                               CHANGING gs_kna1.
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+    EXPORTING
+      input  = gs_order_partners_out-customer
+    IMPORTING
+      output = ls_ord_hdr-shipto.
+  ls_ord_hdr-storeno =
+  ls_ord_hdr-shiptoname           = gs_kna1-name.
+  ls_ord_hdr-shiptoaddress1       = gs_kna1-address1.
+  ls_ord_hdr-shiptoaddress2       = gs_kna1-address2.
+  ls_ord_hdr-shiptoaddress3       = gs_kna1-address3.
+  ls_ord_hdr-shiptocity           = gs_kna1-city.
+  ls_ord_hdr-shiptoregion         = gs_kna1-region.
+  ls_ord_hdr-shiptopostalcode     = gs_kna1-postalcode.
+  ls_ord_hdr-shiptocountry        = gs_kna1-country.
+*Bill To
+  CLEAR gs_order_partners_out.
+  READ TABLE pt_order_partners INTO gs_order_partners_out WITH KEY sd_doc = p_orderno
+                                                                       itm_number = '000000'
+                                                                       partn_role = 'RE' BINARY SEARCH.
+  PERFORM get_customer_details USING  gs_order_partners_out-customer
+                                      gs_order_partners_out-address
+                               CHANGING gs_kna1.
+  ls_ord_hdr-billto               = gs_kna1-kunnr.
+  ls_ord_hdr-billtoname           = gs_kna1-name.
+  ls_ord_hdr-billtoaddress1       = gs_kna1-address1.
+  ls_ord_hdr-billtoaddress2       = gs_kna1-address1.
+  ls_ord_hdr-billtoaddress3       = gs_kna1-address3.
+  ls_ord_hdr-billtocity           = gs_kna1-city.
+  ls_ord_hdr-billtoregion         = gs_kna1-region.
+  ls_ord_hdr-billtopostalcode     = gs_kna1-postalcode.
+  ls_ord_hdr-billtocountry        = gs_kna1-country.
+  ls_ord_hdr-currency             = ps_order_header-currency.
+  ls_ord_hdr-creditstatus         = gs_order_headerstatus_out-totstatcch.
+  ls_ord_hdr-orderstatus          = gs_order_headerstatus_out-refdochdst.
+  ls_ord_hdr-termscode            = gs_order_business_out-pmnttrms.
+  SELECT  SINGLE text1 INTO ls_ord_hdr-termsdescription
+         FROM  t052u
+         WHERE  spras  = sy-langu
+         AND    zterm  = gs_order_business_out-pmnttrms
+         AND    ztagg  = '00'.
+*Shipmethod
+  PERFORM get_shipmethod USING p_orderno
+                               '000000'
+                               'SP'
+                         CHANGING ls_ord_hdr-shipmethodcode
+                                  ls_ord_hdr-shipmethodtext.
+
+  ls_ord_hdr-freighttermscode = gs_order_business_out-incoterms1.
+  SELECT SINGLE bezei INTO ls_ord_hdr-freighttermstext
+         FROM tinct
+         WHERE spras = sy-langu
+           AND inco1 = gs_order_business_out-incoterms1.
+
+  LOOP AT pt_ord_hdr_lines INTO ls_ord_hdr_lines.
+*Total Units
+    ls_ord_hdr-totalunits               = ls_ord_hdr-totalunits + ls_ord_hdr_lines-qtybalance.
+    ls_ord_hdr-discountwholesal         = ls_ord_hdr-discountwholesal  + ( ls_ord_hdr_lines-subtotalwholesal *
+                                          ls_ord_hdr_lines-discountpercent  / 100 ).
+*-------- Subtotal Wholesale
+    IF ls_ord_hdr_lines-qtyordered > 0.
+      ls_ord_hdr_lines-subtotalwholesal = ls_ord_hdr_lines-subtotalwholesal * ls_ord_hdr_lines-qtybalance / ls_ord_hdr_lines-qtyordered.
+      ls_ord_hdr-subtotalwholesal       = ls_ord_hdr-subtotalwholesal  + ls_ord_hdr_lines-subtotalwholesal.
+*-------- Subtotal Net
+      ls_ord_hdr_lines-subtotalnet      = ls_ord_hdr_lines-subtotalnet * ls_ord_hdr_lines-qtybalance / ls_ord_hdr_lines-qtyordered.
+      ls_ord_hdr-subtotalnet            = ls_ord_hdr-subtotalnet + ls_ord_hdr_lines-subtotalnet.
+    ELSE.
+      ls_ord_hdr_lines-subtotalwholesal = 0.
+      ls_ord_hdr-subtotalwholesal       = 0.
+*-------- Subtotal Net
+      ls_ord_hdr_lines-subtotalnet      = 0.
+      ls_ord_hdr-subtotalnet            = 0.
+    ENDIF.
+  ENDLOOP.
+
+  CONCATENATE sy-datum sy-uzeit INTO ls_ord_hdr-dateinserted.
+  APPEND ls_ord_hdr TO pt_ord_hdr.
+
+ENDFORM.                    " LOAD_ORDER_HEADER
+*&---------------------------------------------------------------------*
+*&      Form  LOAD_ITEMS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_ORD_HDR_LINES  text
+*      -->P_WEBSITE  text
+*----------------------------------------------------------------------*
+FORM load_items  TABLES   pt_ord_hdr_lines
+                          pt_order_items      STRUCTURE /afs/bapisditem
+                          pt_order_schedules  STRUCTURE /afs/bapisdschd1
+                          pt_statusinfo       STRUCTURE /afs/bapisdstat
+                          pt_order_itemstatus STRUCTURE /afs/bapisditst
+                          pt_order_schdstatus STRUCTURE /afs/bapisdschdst
+                          pt_order_business   STRUCTURE bapisdbusi
+                          pt_konv             STRUCTURE konv
+                          pt_vbep             STRUCTURE vbep
+                          pt_vbfa             STRUCTURE vbfa
+                 USING    ps_order_header     STRUCTURE /afs/bapisdhd1
+                          p_orderno
+                          p_website.
+
+  DATA: ls_ord_hdr_lines TYPE zsxx_pr_orderline,
+        lt_t001w         TYPE TABLE OF t001w,
+        ls_t001w         TYPE t001w,
+        ls_statusinfo    TYPE /afs/bapisdstat,
+        l_invoiced       TYPE menge_d,
+        l_open           TYPE menge_d,
+        l_bmeng          TYPE menge_d.
+
+  FIELD-SYMBOLS: <order_items> TYPE /afs/bapisditem.
+
+  IF pt_order_items[] IS NOT INITIAL.
+    SELECT        * FROM  t001w INTO TABLE lt_t001w
+           FOR ALL ENTRIES IN pt_order_items
+           WHERE  werks  = pt_order_items-plant.
+    SORT lt_t001w BY werks.
+
+    SELECT vbeln,
+           posnr,
+           kzwi1,
+           kzwi2,
+           kzwi3,
+           kzwi4,
+           kzwi5,
+           kzwi6 FROM  vbap INTO TABLE @DATA(lt_vbap)
+           FOR ALL ENTRIES IN @pt_order_items
+           WHERE  vbeln  = @pt_order_items-doc_number
+             AND  posnr  = @pt_order_items-itm_number
+             ORDER BY PRIMARY KEY.
+
+*mgb 8-22-24 get color
+    SELECT mara~matnr,
+           j_3acolrt~j_3acol,
+           j_3acolrt~text INTO TABLE @DATA(lt_color)
+           FROM mara AS mara
+           INNER JOIN j_3acolrt AS j_3acolrt
+           ON j_3acolrt~j_3acol = mara~j_3acol
+           FOR ALL ENTRIES IN @pt_order_items
+           WHERE mara~matnr = @pt_order_items-material
+             AND j_3acolrt~spras = @sy-langu.
+    SORT lt_color BY matnr.
+*End
+
+  ENDIF.
+
+  LOOP AT pt_order_items ASSIGNING <order_items>.
+    LOOP AT pt_order_schedules INTO gs_order_schedules_out
+                                   WHERE itm_number = <order_items>-itm_number.
+      CLEAR ls_statusinfo.
+      READ TABLE pt_statusinfo INTO ls_statusinfo WITH KEY doc_number = <order_items>-doc_number
+                                                           itm_number = <order_items>-itm_number
+                                                           sched_line = gs_order_schedules_out-sched_line BINARY SEARCH.
+      CLEAR gs_order_itemstatus_out.
+      READ TABLE pt_order_itemstatus INTO gs_order_itemstatus_out WITH KEY itm_number = <order_items>-itm_number BINARY SEARCH.
+      CLEAR gs_order_schdstatus_out.
+      READ TABLE pt_order_schdstatus INTO gs_order_schdstatus_out WITH KEY posnr = <order_items>-itm_number
+                                                                   etenr = gs_order_schedules_out-sched_line BINARY SEARCH.
+      CLEAR gs_order_business_out.
+      READ TABLE pt_order_business INTO gs_order_business_out WITH KEY sd_doc     = p_orderno
+                                                                       itm_number = <order_items>-itm_number BINARY SEARCH.
+
+*LS_ORD_HDR_LINES-MANDT =
+*LS_ORD_HDR_LINES-TECHSITE =
+*      ls_ord_hdr_lines-vkorg          = gs_order_header_out-sales_org.
+*      ls_ord_hdr_lines-vtweg          = gs_order_header_out-distr_chan.
+*      ls_ord_hdr_lines-spart          = gs_order_header_out-division.
+*LS_ORD_HDR_LINES-SEQ =
+*LS_ORD_HDR_LINES-ZZORDER =
+*LS_ORD_HDR_LINES-ZZORDLINENO =
+*LS_ORD_HDR_LINES-ZZSCHLINENO =
+*LS_ORD_HDR_LINES-ID =
+*LS_ORD_HDR_LINES-LOCALEID =
+*LS_ORD_HDR_LINES-HOSTREF =
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+        EXPORTING
+          input  = p_orderno
+        IMPORTING
+          output = ls_ord_hdr_lines-orderno.
+*      ls_ord_hdr_lines-orderno        = p_orderno.
+      ls_ord_hdr_lines-website        = p_website.
+      ls_ord_hdr_lines-salesorg       = ps_order_header-sales_org.
+      ls_ord_hdr_lines-division       = ps_order_header-division.
+      ls_ord_hdr_lines-orderlineno    = <order_items>-itm_number.
+      ls_ord_hdr_lines-schlineno      = gs_order_schedules_out-sched_line.
+
+      CALL FUNCTION 'CONVERSION_EXIT_MATN1_OUTPUT'
+        EXPORTING
+          input  = <order_items>-material
+        IMPORTING
+          output = ls_ord_hdr_lines-style.
+      IF NOT <order_items>-grid_number IS INITIAL.
+        WRITE: gs_order_schedules_out-ean_upc TO ls_ord_hdr_lines-upc.
+        ls_ord_hdr_lines-custstyle = gs_order_schedules_out-cust_mat35.
+
+        DATA:  l_j_3asize  TYPE j_3asosi_s-j_3asize,
+               l_j_3apgnr  TYPE j_3apghd-j_3apgnr,
+               l_j_3akord1 LIKE j_3apgen-j_3akord1,
+               l_j_3akord2 LIKE j_3apgen-j_3akord2,
+               l_j_3akord3 LIKE j_3apgen-j_3akord3.
+        l_j_3asize = gs_order_schedules_out-grid_value.
+        l_j_3apgnr = <order_items>-grid_number.
+        CALL FUNCTION 'J_3A_SPLIT_SIZES'
+          EXPORTING
+*           MATNR              =
+            j_3asize           = l_j_3asize
+            j_3apgnr           = l_j_3apgnr
+*           J_3AKORD1          =
+*           J_3AKORD2          =
+*           J_3AKORD3          =
+*           I_J3AVDAT          =
+          IMPORTING
+            j_3akord1          = l_j_3akord1
+            j_3akord2          = l_j_3akord2
+            j_3akord3          = l_j_3akord3
+*           J_3ASIZE           =
+          EXCEPTIONS
+            no_grid_determined = 1
+            OTHERS             = 2.
+
+        ls_ord_hdr_lines-attributevalue1 = l_j_3akord1.
+        ls_ord_hdr_lines-attributevalue2 = l_j_3akord2.
+        ls_ord_hdr_lines-attributevalue3 = l_j_3akord3.
+
+*mgb 8-22-24 get color
+        READ TABLE lt_color ASSIGNING FIELD-SYMBOL(<color>) WITH KEY matnr = <order_items>-material BINARY SEARCH.
+        IF sy-subrc = 0.
+          ls_ord_hdr_lines-attributevalue4 = <color>-text.
+          ls_ord_hdr_lines-attributelabel4 = 'Color'.
+        ENDIF.
+*end
+
+        CONCATENATE  ls_ord_hdr_lines-style
+                     ls_ord_hdr_lines-attributevalue1
+                     ls_ord_hdr_lines-attributevalue2
+                INTO ls_ord_hdr_lines-sku.
+        CONDENSE ls_ord_hdr_lines-sku NO-GAPS.
+      ELSE.
+        ls_ord_hdr_lines-sku            = ls_ord_hdr_lines-style.
+        WRITE:  <order_items>-ean_upc TO ls_ord_hdr_lines-upc.
+        ls_ord_hdr_lines-custstyle      = <order_items>-cust_mat22.
+      ENDIF.   "not US_VBAP-J_3APGNR is initial
+
+
+      ls_ord_hdr_lines-attributelabel1  = 'Size'.
+      ls_ord_hdr_lines-attributelabel2  = 'Width'.
+      ls_ord_hdr_lines-description      = <order_items>-short_text.
+      CONCATENATE  gs_order_schedules_out-req_date gc_timefinish INTO ls_ord_hdr_lines-dateschship.
+      ls_ord_hdr_lines-qtyordered       = gs_order_schedules_out-req_qty.
+
+      PERFORM get_quantities TABLES   pt_vbep
+                                      pt_vbfa
+                             USING    p_orderno
+                                      ps_order_header
+                                      <order_items>
+                             CHANGING ls_ord_hdr_lines
+                                      l_invoiced
+                                      l_open
+                                      l_bmeng
+                                      ls_ord_hdr_lines-status.
+*LS_ORD_HDR_LINES-QTYSHIPPED =
+*LS_ORD_HDR_LINES-QTYPICKED =
+*LS_ORD_HDR_LINES-QTYALLOCATED =
+*LS_ORD_HDR_LINES-QTYOPEN =
+*LS_ORD_HDR_LINES-QTYUNAVAILABLE =
+*LS_ORD_HDR_LINES-QTYBALANCE =
+      ls_ord_hdr_lines-unitmeasure      = <order_items>-sales_unit.
+
+*** GET PRICING
+      DATA:  lv_wholesale           TYPE konv-kwert,
+             lv_wholesale_unitprice TYPE konv-kbetr,
+             lv_discount            TYPE konv-kwert,
+             lv_subtotal            TYPE konv-kwert,
+             lv_percent(8),
+             lv_taxes               TYPE konv-kwert,
+             lv_other               TYPE konv-kwert.
+*             l_so_qty               TYPE bmeng.
+*      DATA:  "lv_value1 TYPE j_3akord1,
+*             lv_value2 TYPE j_3akord2,
+*             lv_value3 TYPE j_3akord3.
+
+      l_bmeng = ls_statusinfo-cum_cf_qty.
+      IF NOT gs_order_schedules_out-req_qty IS INITIAL.
+        PERFORM determine_prices_item  TABLES pt_konv
+                                       USING gs_order_schedules_out-itm_number
+                                             gs_order_schedules_out-sched_line
+                                             <order_items>-cum_cf_qty
+                                             l_bmeng
+                                    CHANGING lv_wholesale
+                                             lv_wholesale_unitprice
+                                             lv_discount
+                                             lv_taxes
+                                             lv_percent
+                                             lv_other.
+        lv_subtotal                   = lv_wholesale + lv_discount.
+        IF lv_percent                 = 'CALC'.
+          IF lv_wholesale GT 0.
+            lv_percent                = lv_discount * 100 / lv_wholesale.
+          ELSE.
+            lv_percent                = lv_wholesale.
+          ENDIF.
+        ENDIF.
+
+      ELSE.
+        PERFORM determine_prices_item TABLES  pt_konv
+                                      USING   gs_order_schedules_out-itm_number
+                                              gs_order_schedules_out-sched_line
+                                              <order_items>-cum_cf_qty
+                                              gs_order_schedules_out-req_qty
+                                     CHANGING lv_wholesale
+                                              lv_wholesale_unitprice
+                                              lv_discount
+                                              lv_taxes
+                                              lv_percent
+                                              lv_other.
+
+        lv_subtotal                   = lv_wholesale + lv_discount.
+        IF lv_percent                 = 'CALC'.
+          IF lv_wholesale GT 0.
+            lv_percent                = lv_discount * 100 / lv_wholesale.
+          ELSE.
+            lv_percent                = lv_wholesale.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+
+      DATA: l_netprice TYPE /afs/bapisdstat-net_price.
+      IF NOT <order_items>-grid_number IS INITIAL.
+*-- AFS Material
+        READ TABLE lt_vbap ASSIGNING FIELD-SYMBOL(<vbap>) WITH KEY vbeln = <order_items>-doc_number
+                                                                   posnr = <order_items>-itm_number BINARY SEARCH.
+        IF sy-subrc = 0.
+          IF <vbap>-kzwi4 IS INITIAL AND <vbap>-kzwi6 IS INITIAL.  "kzwi4 = freight kzwi6 = freight
+            WRITE: ls_statusinfo-net_price TO ls_ord_hdr_lines-unitpricenet
+                                  CURRENCY ps_order_header-currency NO-GROUPING.
+            WRITE: ls_statusinfo-net_value TO ls_ord_hdr_lines-subtotalnet
+                                 CURRENCY ps_order_header-currency NO-GROUPING.
+          ELSE.
+* subract freight and taxes
+*Unit Price
+            CLEAR l_netprice.
+            IF <order_items>-req_qty > 0.
+              l_netprice =  ( <vbap>-kzwi1 + <vbap>-kzwi2 ) / <order_items>-req_qty.
+            ELSE.
+              l_netprice =  ( <vbap>-kzwi1 + <vbap>-kzwi2 ).
+            ENDIF.
+            WRITE: l_netprice TO ls_ord_hdr_lines-unitpricenet CURRENCY ps_order_header-currency NO-GROUPING.
+*Subtotal Net
+            l_netprice =  l_netprice * l_bmeng.
+            WRITE: l_netprice TO ls_ord_hdr_lines-subtotalnet CURRENCY ps_order_header-currency NO-GROUPING.
+
+          ENDIF.
+        ENDIF.
+
+      ELSE.
+*-- STD Material
+        WRITE: <order_items>-net_price TO ls_ord_hdr_lines-unitpricenet
+                             CURRENCY ps_order_header-currency NO-GROUPING.
+        WRITE: <order_items>-net_value TO ls_ord_hdr_lines-subtotalnet
+                             CURRENCY ps_order_header-currency NO-GROUPING.
+      ENDIF.
+      WRITE: lv_wholesale TO ls_ord_hdr_lines-subtotalwholesal
+                          CURRENCY ps_order_header-currency NO-GROUPING,
+             lv_wholesale_unitprice TO ls_ord_hdr_lines-unitpricewholesl
+                                    CURRENCY ps_order_header-currency NO-GROUPING,
+*         LV_SUBTOTAL to CH_ORDERLINE-SUBTOTALNET
+*                     currency US_VBAK-WAERK no-grouping,
+             lv_percent TO ls_ord_hdr_lines-discountpercent
+                        CURRENCY ps_order_header-currency NO-GROUPING.
+
+*LS_ORD_HDR_LINES-UNITPRICEWHOLESL =
+*LS_ORD_HDR_LINES-UNITPRICENET =
+*LS_ORD_HDR_LINES-UNITPRICEPROMO =
+*LS_ORD_HDR_LINES-SUBTOTALWHOLESAL =
+*LS_ORD_HDR_LINES-SUBTOTALNET =
+*LS_ORD_HDR_LINES-DISCOUNTPERCENT =
+      ls_ord_hdr_lines-warehouseno = <order_items>-plant.
+      CLEAR ls_t001w.
+      READ TABLE lt_t001w INTO ls_t001w WITH KEY werks = <order_items>-plant BINARY SEARCH.
+      ls_ord_hdr_lines-warehouse = ls_t001w-name1.
+*LS_ORD_HDR_LINES-TRACKINGNO =
+*LS_ORD_HDR_LINES-DATEINSERTED =
+      APPEND ls_ord_hdr_lines TO pt_ord_hdr_lines.
+    ENDLOOP.
+  ENDLOOP.
+
+ENDFORM.                    " LOAD_ITEMS
+*&---------------------------------------------------------------------*
+*&      Form  GET_VBFA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_GT_VBFA  text
+*      -->P_ORDERNO  text
+*----------------------------------------------------------------------*
+FORM get_vbfa  TABLES   pt_vbfa STRUCTURE vbfa
+               USING    p_orderno.
+
+  CLEAR pt_vbfa[].
+  SELECT        * FROM  vbfa INTO TABLE pt_vbfa
+         WHERE  vbelv  = p_orderno.
+
+ENDFORM.                    " GET_VBFA
+*&---------------------------------------------------------------------*
+*&      Form  DETERMINE_PRICES_ITEM
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_P_ORDERNO  text
+*      -->P_GS_ORDER_SCHEDULES_OUT_ITM_NUM  text
+*      -->P_GS_ORDER_SCHEDULES_OUT_SCHED_L  text
+*      -->P_GS_ORDER_ITEMS_OUT_CUM_CF_QTY  text
+*      -->P_GS_ORDER_SCHEDULES_OUT_BMENG  text
+*      <--P_LV_WHOLESALE  text
+*      <--P_LV_WHOLESALE_UNITPRICE  text
+*      <--P_LV_DISCOUNT  text
+*      <--P_LV_TAXES  text
+*      <--P_LV_PERCENT  text
+*      <--P_LV_OTHER  text
+*----------------------------------------------------------------------*
+FORM determine_prices_item  TABLES  pt_konv STRUCTURE konv
+                            USING   us_posnr TYPE posnr
+                                    us_etenr TYPE etenr
+                                    us_kbmeng TYPE vbap-kbmeng
+                                    us_bmeng TYPE vbep-bmeng
+                           CHANGING ch_wholesale  "wholesale amount
+                                    ch_unitprice  "unit price wholesale
+                                    ch_discount   "discount amount
+                                    ch_taxes      "taxes
+                                    ch_percent    "discount percent
+                                    ch_other.     "other
+
+*  DATA: l_kbetr TYPE konv-kbetr.
+
+  FIELD-SYMBOLS: <konv> LIKE konv.
+* DESCRIPTION:  Assign pricing components
+
+* Begin processing
+  CLEAR:  ch_wholesale,
+          ch_unitprice,
+          ch_discount,
+          ch_taxes,
+          ch_other.
+
+* check elements at line item level
+  LOOP AT pt_konv ASSIGNING <konv>
+                  WHERE kposn = us_posnr     AND
+                        j_3aetenr = '0000'   AND
+                        kstat = space        AND
+                        kinak = space.
+*-- check Condtion Class... prices, taxes, discounts, etc.
+    CASE <konv>-koaid.
+      WHEN 'B'.       "prices
+        IF <konv>-kntyp = 'H' OR <konv>-kntyp = space.
+*-------- wholesale amount
+          IF us_kbmeng > 0.
+            ch_wholesale = ch_wholesale + ( <konv>-kwert * us_bmeng / us_kbmeng ).
+          ELSE.
+            ch_wholesale = ch_wholesale + ( <konv>-kwert * us_bmeng ).
+          ENDIF.
+          IF <konv>-krech = 'C'.
+*---------- wholesale unit price
+            ch_unitprice = <konv>-kbetr.
+          ENDIF.
+        ELSE.
+*-------- OTHER Amount
+          IF us_kbmeng > 0.
+            ch_other = ch_other + ( <konv>-kwert * us_bmeng / us_kbmeng ).
+          ELSE.
+            ch_other = ch_other + ( <konv>-kwert * us_bmeng ).
+          ENDIF.
+        ENDIF.   "<KONV>-KSTAT = space...
+      WHEN 'A'.       "Discounts/Surcharges
+        IF <konv>-kntyp = space.
+*-------- (-): discount; (+): surcharge
+          IF us_kbmeng > 0.
+            ch_discount = ch_discount + ( <konv>-kwert * us_bmeng / us_kbmeng ).
+          ELSE.
+            ch_discount = ch_discount + ( <konv>-kwert * us_bmeng ).
+          ENDIF.
+          IF <konv>-krech CA 'AHI'.
+            IF ch_percent IS INITIAL.
+              WRITE:  <konv>-kbetr TO ch_percent
+                                   CURRENCY '3'
+                                   NO-GROUPING.
+            ELSE.
+              ch_percent = 'CALC'.
+            ENDIF.   "CH_PERCENT is initial
+          ELSE.
+            ch_percent = 'CALC'.
+          ENDIF.   "<KONV>-KRECH ca 'AHI'
+        ELSE.
+*-------- OTHER Amount
+          ch_other = ch_other + ( <konv>-kwert * us_bmeng / us_kbmeng ).
+        ENDIF.   "<KONV>-KNTYP = space
+      WHEN 'D'.       "TAXES
+*------ Taxes
+        ch_taxes = ch_taxes + ( <konv>-kwert * us_bmeng / us_kbmeng ).
+*      WHEN 'C'.       "Expense reimbursement/rebate
+**------ Rebates??
+*        CH_Rebate = CH_Rebate + <KONV>-KWERT.
+      WHEN OTHERS.
+*------ OTHER Amount
+        ch_other = ch_other + ( <konv>-kwert * us_bmeng / us_kbmeng ).
+    ENDCASE.   "<KONV>-KOAID
+  ENDLOOP.   "AT GT_KONV assigning <KONV>
+
+* 2nd pass to check elements at schedule line level
+  LOOP AT pt_konv ASSIGNING <konv>
+                  WHERE kposn = us_posnr        AND
+                        j_3aetenr = us_etenr    AND
+                        kstat = space           AND
+                        kinak = space.
+*-- check Condtion Class... prices, taxes, discounts, etc.
+    CASE <konv>-koaid.
+      WHEN 'B'.       "prices
+        IF <konv>-kntyp = 'H'   OR
+           <konv>-kntyp = space.
+*-------- wholesale amount
+          ch_wholesale = ch_wholesale +  <konv>-kwert.
+          IF <konv>-krech = 'C'.
+*---------- wholesale unit price
+            ch_unitprice = <konv>-kbetr.
+          ENDIF.
+        ELSE.
+*-------- OTHER Amount
+          ch_other = ch_other +  <konv>-kwert.
+        ENDIF.   "<KONV>-KNTYP = 'H'  OR...
+      WHEN 'A'.       "Discounts/Surcharges
+        IF <konv>-kntyp = space.
+*-------- (-): discount; (+): surcharge
+          ch_discount = ch_discount + <konv>-kwert.
+          IF <konv>-krech CA 'AHI'.
+            IF ch_percent IS INITIAL.
+              WRITE:  <konv>-kbetr TO ch_percent
+                                   CURRENCY '3'
+                                   NO-GROUPING.
+            ELSE.
+              ch_percent = 'CALC'.
+            ENDIF.   "CH_PERCENT is initial
+          ELSE.
+            ch_percent = 'CALC'.
+          ENDIF.   "<KONV>-KRECH ca 'AHI'
+        ELSE.
+*-------- OTHER Amount
+          ch_other = ch_other + <konv>-kwert.
+        ENDIF.
+      WHEN 'D'.       "TAXES
+*------ Taxes
+        ch_taxes = ch_taxes + <konv>-kwert.
+*      WHEN 'C'.       "Expense reimbursement/rebate
+**------ Rebates??
+*        CH_Rebate = CH_Rebate + <KONV>-KWERT.
+      WHEN OTHERS.
+*------ OTHER Amount
+        ch_other = ch_other + <konv>-kwert.
+    ENDCASE.   "<KONV>-KOAID
+  ENDLOOP.   "AT GT_KONV assigning <KONV>
+
+
+ENDFORM.                    " DETERMINE_PRICES_ITEM
+*&---------------------------------------------------------------------*
+*&      Form  GET_ORDER_STATUS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_ORDERNO  text
+*----------------------------------------------------------------------*
+FORM get_order_status TABLES pt_statusinfo
+                      USING p_orderno.
+
+  DATA: lt_statusinfo TYPE TABLE OF  /afs/bapisdstat.
+
+  CALL FUNCTION '/AFS/BAPI_SALESORDER_GETSTATUS'
+    EXPORTING
+      salesdocument = p_orderno
+    IMPORTING
+      return        = gs_return
+    TABLES
+      statusinfo    = lt_statusinfo
+*     ORDER_ITMLIST_IN =
+    .
+
+  SORT lt_statusinfo BY  doc_number
+                         itm_number
+                         sched_line.
+
+  pt_statusinfo[] = lt_statusinfo[].
+
+ENDFORM.                    " GET_ORDER_STATUS
+*&---------------------------------------------------------------------*
+*&      Form  GET_QUANTITIES
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM get_quantities TABLES   pt_vbep           STRUCTURE vbep
+                             pt_vbfa           STRUCTURE vbfa
+                    USING    p_orderno
+                             ps_order_hdr      STRUCTURE /afs/bapisdhd1
+                             ps_order_line     STRUCTURE /afs/bapisditem
+                    CHANGING ps_ord_hdr_lines  STRUCTURE zsxx_pr_orderline
+                             p_invoiced
+                             p_open
+                             p_bmeng
+                             p_status.
+
+* Quantities
+  DATA:  l_open           TYPE menge_d,
+         l_invoiced       TYPE menge_d,
+         l_shipped        TYPE menge_d,
+         l_picked         TYPE menge_d,
+         l_allocated      TYPE menge_d,
+         l_balance        TYPE menge_d,
+         l_qty_base_unit  TYPE menge_d,    "qty:  Base units
+         l_qty_sales_unit TYPE menge_d.    "qty:  Sales units
+
+  DATA: "lt_vbep      TYPE TABLE OF vbep,
+    ls_vbep      TYPE vbep,
+    ls_vbfa      TYPE vbfa,
+    ls_delstatus TYPE vbup.
+
+  DATA: l_order_open(1) TYPE c.
+
+  CLEAR: p_invoiced,
+*         p_open,
+         p_bmeng,
+         p_status.
+
+  READ TABLE pt_vbep INTO ls_vbep WITH KEY vbeln = p_orderno
+                                            posnr = gs_order_schedules_out-itm_number
+                                            etenr = gs_order_schedules_out-sched_line BINARY SEARCH.
+  p_bmeng = ls_vbep-bmeng.
+
+  IF ps_order_hdr-doc_type = 'YFTP'.  "Third party order - has no delivery so set status based on invoice qty
+    IF ls_vbep-j_3aabgru EQ space.               "reason for rejection
+      IF gs_order_itemstatus_out-confstatit = 'A'.
+        l_open = ls_vbep-wmeng.
+      ELSE.
+        l_open = ls_vbep-bmeng.      "<-- initial assignment for open qty
+      ENDIF.
+    ENDIF.
+    LOOP AT pt_vbfa INTO ls_vbfa
+                     WHERE vbelv      = p_orderno  AND
+                           posnv      = gs_order_schedules_out-itm_number  AND
+                           j_3aetenr  = gs_order_schedules_out-sched_line  AND
+                           vbtyp_n = 'M'.        "Invoice
+      PERFORM convert_uom USING l_qty_base_unit
+                                ls_vbep-umvkn
+                                ls_vbep-umvkz
+                      CHANGING  l_qty_sales_unit.
+      l_invoiced = l_invoiced + l_qty_sales_unit.
+    ENDLOOP.
+    IF l_open > l_invoiced.
+      l_order_open = 'X'.
+    ENDIF.   "l_open > l_invoiced
+    IF gs_order_itemstatus_out-dlv_stat_i = 'B'  AND l_open IS NOT INITIAL.
+      PERFORM get_allocated_qty  USING p_orderno
+                                       gs_order_schedules_out-itm_number
+                                       gs_order_schedules_out-sched_line
+                              CHANGING l_qty_base_unit.
+      PERFORM convert_uom USING l_qty_base_unit
+                                ls_vbep-umvkn
+                                ls_vbep-umvkz
+                      CHANGING  l_allocated.
+      l_open = l_open - l_allocated. "<-- open, not allocated
+    ENDIF.
+    IF l_invoiced = ps_order_line-cum_cf_qty.          "ALL INVOICED
+* Checking for line item is Rejected or not
+      IF ls_vbep-j_3aabgru EQ space.
+        p_status = 'COMPLETE'.
+      ELSE.
+        p_status = 'CANCELLED'.
+      ENDIF.
+    ELSEIF l_open = ps_order_line-cum_cf_qty.          "ALL OPEN
+      p_status = 'OPEN'.
+    ELSE.                                    "IN PROCESS
+      p_status = 'IN PROCESS'.
+    ENDIF.
+
+  ELSE.
+
+    IF gs_order_itemstatus_out-dlv_stat_i <> 'C' AND gs_order_itemstatus_out-ovrprocsta <> 'C'.
+      l_order_open = 'X'.
+    ENDIF.
+    IF gs_order_schdstatus_out-absta EQ 'C'.
+      ps_ord_hdr_lines-qtyunavailable = ls_vbep-wmeng.
+      p_status = 'CANCELLED'.
+      l_allocated = 0.
+    ELSE.
+      l_allocated = ls_vbep-wmeng.
+      ps_ord_hdr_lines-qtyunavailable = 0.
+      IF gs_order_schdstatus_out-lfgsa = 'A'.
+        p_status = 'OPEN'.
+      ELSEIF gs_order_schdstatus_out-lfgsa = 'C' OR gs_order_schdstatus_out-lfgsa = 'B'.
+        LOOP AT pt_vbfa INTO ls_vbfa
+                          WHERE vbelv      = p_orderno  AND
+                                posnv      = gs_order_schedules_out-itm_number  AND
+                                j_3aetenr  = gs_order_schedules_out-sched_line  AND
+                                vbtyp_n = 'J'.        "delivery
+*------ convert Base units to sales units
+          PERFORM convert_uom USING ls_vbfa-rfmng
+                                    ls_vbep-umvkn
+                                    ls_vbep-umvkz
+                          CHANGING  l_qty_sales_unit.
+*------ get status of delivery document
+          CLEAR ls_delstatus.
+          READ TABLE gt_delstatus INTO ls_delstatus WITH KEY vbeln = ls_vbfa-vbeln
+                                                             posnr = ls_vbfa-posnn BINARY SEARCH.
+          IF sy-subrc = 0.
+            IF ls_delstatus-wbsta = 'C'.
+*---------- shipped!
+              l_shipped = l_shipped + l_qty_sales_unit.
+              p_status = 'COMPLETE'.
+            ELSEIF ls_delstatus-wbsta = 'A'.
+              p_status = 'OPEN'.
+            ENDIF.
+          ENDIF.   "sy-subrc = 0 [on READ table GTS_DELSTATUS...]
+        ENDLOOP.   "at gts_vbfa assigning <vbfa>
+        IF p_status IS INITIAL.
+          p_status = 'OPEN'.
+        ENDIF.
+      ENDIF.
+      l_open = l_allocated - l_shipped.
+    ENDIF.
+  ENDIF.
+
+* open qty
+  WRITE:  l_open TO ps_ord_hdr_lines-qtyopen
+                  UNIT ps_order_line-sales_unit NO-GROUPING.
+** allocated qty
+  WRITE:  l_allocated TO ps_ord_hdr_lines-qtyallocated
+                  UNIT ps_order_line-sales_unit NO-GROUPING.
+** Picked qty
+  WRITE:  l_picked TO ps_ord_hdr_lines-qtypicked
+                  UNIT ps_order_line-sales_unit NO-GROUPING.
+** Shipped qty
+  WRITE:  l_shipped TO ps_ord_hdr_lines-qtyshipped
+                  UNIT ps_order_line-sales_unit NO-GROUPING.
+* Qty Balance (Will appear on website as OPEN.  Include everything
+*              except shipped.  Field shipped only includes invoiced).
+  l_balance = l_allocated - l_shipped.
+  WRITE:  l_balance TO ps_ord_hdr_lines-qtybalance
+                  UNIT ps_order_line-sales_unit NO-GROUPING.
+
+  p_invoiced = l_invoiced.
+  p_open     = l_open.
+
+ENDFORM.                    " GET_QUANTITIES
+*&---------------------------------------------------------------------*
+*&      Form  convert_uom
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->US_QTY_FROM  text
+*      -->US_NUM       text
+*      -->US_DEN       text
+*      <--CH_QTY_TO    text
+*----------------------------------------------------------------------*
+FORM convert_uom USING    us_qty_from
+                          us_num TYPE umvkn    "numerator
+                          us_den TYPE umvkz    "denominator
+                 CHANGING ch_qty_to.
+* Convert quantity to new Units of Measure
+
+  CLEAR ch_qty_to.
+  ch_qty_to = ( us_qty_from * us_num ) / us_den.
+
+ENDFORM.                    " CONVERT_UOM
+*&---------------------------------------------------------------------*
+*&      Form  GET_J_3ABDBS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_GT_J_3ABDBS  text
+*      -->P_ORDERNO  text
+*----------------------------------------------------------------------*
+FORM get_j_3abdbs  TABLES   pt_j_3abdbs STRUCTURE j_3abdbs
+                   USING    p_orderno.
+
+  CLEAR pt_j_3abdbs[].
+  SELECT        * FROM  j_3abdbs INTO TABLE pt_j_3abdbs
+         WHERE  aufnr  = p_orderno.
+
+
+ENDFORM.                    " GET_J_3ABDBS
+*&---------------------------------------------------------------------*
+*&      Form  get_allocated_qty
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->US_VBELN        text
+*      -->US_POSNR        text
+*      -->US_ETENR        text
+*      <--CH_MENGE_MEINS  text
+*----------------------------------------------------------------------*
+FORM get_allocated_qty USING    us_vbeln TYPE vbeln
+                                us_posnr TYPE posnr
+                                us_etenr TYPE etenr
+                       CHANGING ch_menge_meins TYPE menge_d.
+* DESCRIPTION:  Determine allocated qty
+
+  CLEAR:  ch_menge_meins.
+  LOOP AT gt_j_3abdbs INTO gs_j_3abdbs
+                   WHERE aufnr = us_vbeln   AND
+                         posnr = us_posnr   AND
+                         etenr = us_etenr   AND
+                         j_3astat CA 'FR'.      "Fixed/Reserved
+*                       ( J_3ASTAT = 'F'   OR  "Fixed (Open to delivery)
+*                         J_3ASTAT = 'R' ).    "Reserved
+    ch_menge_meins = ch_menge_meins + gs_j_3abdbs-menge.
+  ENDLOOP.   "at GTS_BDBS assigning <BDBS>
+
+ENDFORM.                    " GET_ALLOCATED_QTY
+*&---------------------------------------------------------------------*
+*&      Form  GET_TRACKING_NUMBER
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_LT_VBFA  text
+*      -->P_LT_VEKP  text
+*      <--P_LS_ORD_HDR_TRACKINGNO  text
+*----------------------------------------------------------------------*
+FORM get_tracking_number  TABLES   pt_vbfa_del
+                                   pt_vekp STRUCTURE vekp
+                          CHANGING p_trackingno.
+
+  DATA: BEGIN OF ls_vbfa_del,
+          vbeln TYPE vekp-vpobjkey,
+        END OF ls_vbfa_del.
+
+  LOOP AT pt_vbfa_del INTO ls_vbfa_del.
+    READ TABLE pt_vekp WITH KEY vpobjkey = ls_vbfa_del-vbeln BINARY SEARCH.
+    IF sy-subrc = 0.
+      IF NOT pt_vekp-inhalt IS INITIAL.
+        p_trackingno = pt_vekp-inhalt.
+        EXIT.
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+
+ENDFORM.                    " GET_TRACKING_NUMBER
+*&---------------------------------------------------------------------*
+*&      Form  GET_IDOC_ORDER
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_R_VBELN  text
+*      -->P_I_FROM_ORDER_NO  text
+*      -->P_I_TO_ORDER_NO  text
+*----------------------------------------------------------------------*
+FORM get_idoc_order  TABLES   pr_vbeln STRUCTURE gs_vbeln
+                     USING    p_from_order_no
+                              p_to_order_no.
+
+  TYPES: BEGIN OF ltyp_idoc_order,
+           docnum TYPE edi_docnum,
+           stapa2 TYPE edi_stapa2,
+         END OF ltyp_idoc_order.
+
+  DATA: l_from_idoc TYPE docnum,
+        l_to_idoc   TYPE docnum.
+
+  DATA: lt_idoc_order TYPE TABLE OF ltyp_idoc_order,
+        ls_idoc_order TYPE ltyp_idoc_order.
+
+  DATA: lr_vbeln TYPE RANGE OF vbeln,
+        ls_vbeln LIKE LINE OF lr_vbeln.
+
+  DATA: l_docnum(10) TYPE c.
+
+  REFRESH pr_vbeln.
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = p_from_order_no
+    IMPORTING
+      output = l_from_idoc.
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = p_to_order_no
+    IMPORTING
+      output = l_to_idoc.
+
+
+  SELECT edids~docnum edids~stapa2 INTO TABLE lt_idoc_order
+         FROM  edids AS edids
+         INNER JOIN edidc AS edidc
+         ON edidc~docnum = edids~docnum
+         WHERE  edids~docnum  BETWEEN l_from_idoc AND l_to_idoc
+         AND    edids~status  = '53'
+         AND    edidc~mestyp  = 'ORDERS'.
+
+  ls_vbeln-sign   = 'I'.
+  ls_vbeln-option = 'EQ'.
+
+  LOOP AT lt_idoc_order INTO ls_idoc_order.
+    ls_vbeln-low = ls_idoc_order-stapa2.
+    APPEND ls_vbeln TO pr_vbeln.
+  ENDLOOP.
+
+  SORT pr_vbeln BY low.
+
+  LOOP AT lt_idoc_order INTO ls_idoc_order.
+    MOVE ls_idoc_order-docnum+6(10) TO l_docnum.
+    READ TABLE pr_vbeln TRANSPORTING NO FIELDS WITH KEY low = l_docnum BINARY SEARCH.
+    IF sy-subrc = 0.
+      DELETE pr_vbeln INDEX sy-tabix.
+    ENDIF.
+  ENDLOOP.
+
+
+ENDFORM.                    " GET_IDOC_ORDER
+*&---------------------------------------------------------------------*
+*&      Form  CLEAR_GLOBAL_DATA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM clear_global_data .
+
+  CLEAR: gs_kna1,
+        gs_order_headerstatus_out,
+        gs_return,
+        gs_sales_documents,
+        gs_order_schedules_out,
+        gs_order_business_out,
+        gs_order_address_out,
+        gs_order_partners_out,
+        gs_order_itemstatus_out,
+        gs_order_schdstatus_out,
+        gs_order_conditions_out,
+        gs_header_condition_out,
+        gs_item_condition_out,
+        gs_order_cond_qty_scale,
+        gs_order_cond_val_scale,
+        gs_order_cfgs_curefs_out,
+        gs_order_cfgs_cucfgs_out,
+        gs_order_cfgs_cuins_out,
+        gs_order_cfgs_cuprts_out,
+        gs_order_cfgs_cuvals_out,
+        gs_order_cfgs_cublbs_out,
+        gs_order_cfgs_cuvks_out,
+        gs_order_creditcards_out,
+        gs_extensionout,
+        gs_order_textheaders_out,
+        gs_order_textlines_out,
+        gs_order_vas_tl_out,
+        gs_order_vas_pack_out,
+        gs_order_vas_sps_out,
+        gs_open_qty,
+        gs_wb2_v_vbak_vbap2,
+        gs_order,
+        gs_bstkd,
+        gs_so_qty,
+        gs_ihrez.
+
+  REFRESH: gt_so_qty,
+           gt_open_qty,
+           gt_order,
+           gt_vbkd.
+
+ENDFORM.                    " CLEAR_GLOBAL_DATA
+*&---------------------------------------------------------------------*
+*&      Form  GET_OPEN_ORDERS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM get_open_orders TABLES pr_vbeln STRUCTURE gs_vbeln
+                            pt_open_qty STRUCTURE gs_open_qty
+                            pt_orders STRUCTURE gs_order
+                     USING  p_open_orders.
+
+  TYPES: BEGIN OF typ_inv_qty,
+           vbeln TYPE vbeln,
+           rfmng TYPE rfmng,
+         END OF typ_inv_qty.
+
+  DATA: "lt_vbep     TYPE TABLE OF vbep,
+*        ls_vbep     TYPE vbep,
+*        lt_vbfa     TYPE TABLE OF vbfa,
+    ls_vbfa     TYPE vbfa,
+*        lt_vbuk     TYPE TABLE OF vbuk,
+*        ls_vbuk     TYPE vbuk,
+    lt_so_qty   TYPE TABLE OF typ_so_qty,
+    ls_so_qty   TYPE typ_so_qty,
+    lt_inv_qty  TYPE TABLE OF typ_inv_qty,
+    ls_inv_qty  TYPE typ_inv_qty,
+    ls_open_qty TYPE typ_open_qty.
+
+  DATA: BEGIN OF lt_orders OCCURS 0,
+          vbeln TYPE vbeln,
+        END OF lt_orders.
+  SELECT vbeln FROM  vakpa INTO TABLE lt_orders
+  WHERE  kunde  IN gr_kunnr
+  AND    parvw  =  'AG'
+  AND    vkorg  IN gr_vkorg
+  AND    audat  IN gr_erdat
+  AND    vtweg  IN gr_vtweg
+  AND    spart  IN gr_spart
+  AND    auart  IN gr_auart
+  AND    kunnr  IN gr_kunnr
+  AND    vbeln  IN pr_vbeln.
+
+* SELECT vbeln FROM  vakpa INTO TABLE lt_orders
+*  WHERE  vkorg  IN gr_vkorg
+*  AND    audat  IN gr_erdat
+*  AND    vtweg  IN gr_vtweg
+*  AND    spart  IN gr_spart
+*  AND    auart  IN gr_auart
+*  AND    kunnr  IN gr_kunnr
+*  AND    vbeln  IN pr_vbeln.
+
+
+  IF lt_orders[] IS NOT INITIAL.
+    REFRESH pt_open_qty.
+
+    DATA: lt_order TYPE TABLE OF typ_order,
+          ls_order TYPE typ_order.
+
+    IF gr_matnr[] IS INITIAL.
+      SELECT vbak~vbeln
+             vbak~erdat
+             vbak~auart
+             vbak~netwr
+             vbak~waerk
+             vbak~vkorg
+             vbak~vtweg
+             vbak~spart
+             vbak~audat
+             vbak~vdatu
+             vbak~gueen
+             vbak~bstnk     "20 char
+             vbkd~bsark
+             vbkd~ihrez
+             vbak~kunnr
+             vbak~bname
+             vbuk~cmgst
+             vbep~posnr
+             vbep~etenr
+             vbep~bmeng
+             vbep~j_3anetw
+             vbpa~kunnr
+             FROM  vbak AS vbak
+             INNER JOIN vbuk AS vbuk ON vbuk~vbeln = vbak~vbeln
+             INNER JOIN vbkd AS vbkd ON vbkd~vbeln = vbak~vbeln
+             INNER JOIN vbep AS vbep ON vbep~vbeln = vbak~vbeln
+             INNER JOIN vbpa AS vbpa ON vbpa~vbeln = vbak~vbeln
+             INTO TABLE lt_order
+             FOR ALL ENTRIES IN lt_orders
+             WHERE  vbak~vbeln     = lt_orders-vbeln
+             AND    vbak~audat     IN gr_erdat
+             AND    vbak~auart     IN gr_auart
+             AND    vbak~vkorg     IN gr_vkorg
+             AND    vbak~vtweg     IN gr_vtweg
+             AND    vbak~spart     IN gr_spart
+             AND    vbak~aedat     IN gr_aedat
+             AND    vbak~vdatu     IN gr_vdatu   "SHIP DATE
+*             AND    vbak~bname     IN gr_bname
+             AND    vbak~kunnr     IN gr_kunnr   "SOLDTO
+             AND    vbkd~posnr     = '000000'
+             AND    vbkd~ihrez     IN gr_ihrez
+             AND    vbep~j_3aabgru IN gr_abgru
+*             AND    vbuk~abstk     <> 'C'
+             AND    vbpa~posnr     =  '000000'
+             AND    vbpa~parvw     = 'WE'
+             AND    vbpa~kunnr     IN gr_shipto.
+    ELSE.
+      SELECT vbak~vbeln
+             vbak~erdat
+             vbak~auart
+             vbak~netwr
+             vbak~waerk
+             vbak~vkorg
+             vbak~vtweg
+             vbak~spart
+             vbak~audat
+             vbak~vdatu
+             vbak~gueen
+             vbak~bstnk  "20 char
+             vbkd~bsark
+             vbkd~ihrez
+             vbak~kunnr
+             vbak~bname
+             vbuk~cmgst
+             vbep~posnr
+             vbep~etenr
+             vbep~bmeng
+             vbep~j_3anetw
+             vbpa~kunnr
+             FROM  vbak AS vbak
+             INNER JOIN vbuk AS vbuk ON vbuk~vbeln = vbak~vbeln
+             INNER JOIN vbkd AS vbkd ON vbkd~vbeln = vbak~vbeln
+             INNER JOIN vbap AS vbap ON vbap~vbeln = vbak~vbeln
+             INNER JOIN vbep AS vbep ON vbep~vbeln = vbak~vbeln
+             INNER JOIN vbpa AS vbpa ON vbpa~vbeln = vbak~vbeln
+             INTO TABLE lt_order
+             FOR ALL ENTRIES IN lt_orders
+             WHERE  vbak~vbeln     = lt_orders-vbeln
+             AND    vbak~audat     IN gr_erdat
+             AND    vbak~auart     IN gr_auart
+             AND    vbak~vkorg     IN gr_vkorg
+             AND    vbak~vtweg     IN gr_vtweg
+             AND    vbak~spart     IN gr_spart
+             AND    vbak~aedat     IN gr_aedat
+             AND    vbak~vdatu     IN gr_vdatu   "SHIP DATE
+*             AND    vbak~bname     IN gr_bname
+             AND    vbak~kunnr     IN gr_kunnr
+             AND    vbkd~posnr     = '000000'
+             AND    vbkd~ihrez     IN gr_ihrez
+             AND    vbep~j_3aabgru IN gr_abgru
+*             AND    vbuk~abstk     <> 'C'
+             AND    vbap~matnr     IN gr_matnr
+             AND    vbpa~posnr     =  '000000'
+             AND    vbpa~parvw     = 'WE'
+             AND    vbpa~kunnr     IN gr_shipto.
+    ENDIF.
+
+    SORT lt_order BY vbeln.
+  ENDIF.
+
+  IF lt_order IS NOT INITIAL.
+    CLEAR gt_vbkd[].
+    SELECT vbeln,
+           bstkd FROM  vbkd
+           INTO TABLE @gt_vbkd
+           FOR ALL ENTRIES IN @lt_order
+           WHERE  vbeln  = @lt_order-vbeln
+           AND    posnr  = '000000'
+           AND    bstkd  IN @gr_bstkd.
+    IF sy-subrc = 0.
+      SORT gt_vbkd BY vbeln.
+      IF gr_bstkd[] IS NOT INITIAL.
+        LOOP AT lt_order INTO ls_order.
+          READ TABLE gt_vbkd TRANSPORTING NO FIELDS WITH KEY vbeln = ls_order-vbeln BINARY SEARCH.
+          IF sy-subrc <> 0.
+            DELETE lt_order.
+          ENDIF.
+        ENDLOOP.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+
+
+  LOOP AT lt_order INTO ls_order.
+    ls_so_qty-vbeln    = ls_order-vbeln.
+    ls_so_qty-bmeng    = ls_order-bmeng.
+    ls_so_qty-j_3anetw = ls_order-j_3anetw.
+    COLLECT ls_so_qty INTO lt_so_qty.
+  ENDLOOP.
+  SORT lt_so_qty BY vbeln.
+
+*INVOCIE QTY
+  IF lt_so_qty[] IS NOT INITIAL.
+    SELECT        * FROM  vbfa INTO TABLE gt_vbfa
+       FOR ALL ENTRIES IN lt_so_qty
+       WHERE  vbelv    = lt_so_qty-vbeln
+*       and    posnv    = lt_so_qty-posnr
+       AND    vbtyp_n  IN ('M', 'O').
+    SORT gt_vbfa BY vbelv posnv.
+    LOOP AT gt_vbfa INTO ls_vbfa.
+      ls_inv_qty-vbeln = ls_vbfa-vbelv.
+      ls_inv_qty-rfmng = ls_vbfa-rfmng.
+      COLLECT ls_inv_qty INTO lt_inv_qty.
+    ENDLOOP.
+    SORT lt_inv_qty BY vbeln.
+  ENDIF.
+
+*get open quantity
+*  refresh pr_vbeln.
+  LOOP AT lt_so_qty INTO ls_so_qty.
+    CLEAR ls_inv_qty.
+*determine open or complete
+    CASE p_open_orders.
+      WHEN 'O'."Open Orders
+        READ TABLE lt_inv_qty INTO ls_inv_qty WITH KEY vbeln = ls_so_qty-vbeln BINARY SEARCH.
+        IF sy-subrc = 0.
+          IF ls_so_qty-bmeng > ls_inv_qty-rfmng.
+            CLEAR ls_order.
+            READ TABLE lt_order INTO ls_order WITH KEY vbeln = ls_so_qty-vbeln BINARY SEARCH.
+            APPEND ls_order TO pt_orders.
+          ENDIF.
+        ELSE.
+          CLEAR ls_order.
+          READ TABLE lt_order INTO ls_order WITH KEY vbeln = ls_so_qty-vbeln BINARY SEARCH.
+          APPEND ls_order TO pt_orders.
+        ENDIF.
+      WHEN 'C'."Complete Orders
+        READ TABLE lt_inv_qty INTO ls_inv_qty WITH KEY vbeln = ls_so_qty-vbeln BINARY SEARCH.
+        IF sy-subrc = 0.
+          IF ls_so_qty-bmeng <= ls_inv_qty-rfmng.
+            CLEAR ls_order.
+            READ TABLE lt_order INTO ls_order WITH KEY vbeln = ls_so_qty-vbeln BINARY SEARCH.
+            APPEND ls_order TO pt_orders.
+          ENDIF.
+        ENDIF.
+      WHEN ' '.
+        READ TABLE lt_inv_qty INTO ls_inv_qty WITH KEY vbeln = ls_so_qty-vbeln BINARY SEARCH.
+        CLEAR ls_order.
+        READ TABLE lt_order INTO ls_order WITH KEY vbeln = ls_so_qty-vbeln BINARY SEARCH.
+        APPEND ls_order TO pt_orders.
+      WHEN OTHERS.
+    ENDCASE.
+*get open qty
+    ls_open_qty-vbeln = ls_so_qty-vbeln.
+    ls_open_qty-qty = ls_so_qty-bmeng - ls_inv_qty-rfmng.
+    ls_open_qty-j_3anetw = ls_so_qty-j_3anetw.
+    APPEND ls_open_qty TO pt_open_qty.
+  ENDLOOP.
+
+  SORT pt_orders BY vbeln.
+
+  SORT pt_open_qty BY vbeln.
+
+ENDFORM.                    " GET_OPEN_ORDERS
+
+*&---------------------------------------------------------------------*
+*&      Form  get_website_variants
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->PR_VARIANT      text
+*      -->P_SALES_ORG_IN  text
+*      -->P_PROGNAME      text
+*      -->P_WEBSITE       text
+*----------------------------------------------------------------------*
+FORM get_website_variants  TABLES   pr_variant STRUCTURE zpr_atp_vkorg
+*                                    p_sales_org_in
+                           USING    p_progname
+                                    p_website.
+
+  DATA: lt_varid   TYPE TABLE OF varid,
+        ls_varid   TYPE varid,
+*        ls_sales_org_in TYPE zpr_atp_vkorg,
+        lr_variant TYPE RANGE OF variant,
+        ls_variant LIKE LINE OF lr_variant.
+
+  DATA: lt_variant_values TYPE TABLE OF rsparams.
+*        ls_variant_values TYPE rsparams.
+
+  REFRESH pr_variant.
+
+  SELECT        * FROM  varid INTO TABLE lt_varid
+       WHERE  report  = p_progname.
+
+  LOOP AT lt_varid INTO ls_varid.
+    REFRESH lt_variant_values.
+    CALL FUNCTION 'RS_VARIANT_VALUES_TECH_DATA'
+      EXPORTING
+        report               = p_progname
+        variant              = ls_varid-variant
+      TABLES
+        variant_values       = lt_variant_values
+      EXCEPTIONS
+        variant_non_existent = 1
+        variant_obsolete     = 2
+        OTHERS               = 3.
+    IF sy-subrc <> 0.
+* Implement suitable error handling here
+    ENDIF.
+    SORT lt_variant_values BY selname low.
+    READ TABLE lt_variant_values TRANSPORTING NO FIELDS WITH KEY selname = 'P_TSITE'
+                                                                 low     = p_website BINARY SEARCH.
+    IF sy-subrc = 0.
+      ls_variant-sign   = 'I'.
+      ls_variant-option = 'EQ'.
+      ls_variant-low    = ls_varid-variant.
+      APPEND ls_variant TO pr_variant.
+    ENDIF.
+  ENDLOOP.
+
+
+ENDFORM.                    " GET_VARIANTS
+*&---------------------------------------------------------------------*
+*&      Form  GET_VARIANT_VALUES
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_R_VKORG  text
+*      -->P_R_VTWEG  text
+*      -->P_R_SPART  text
+*      -->P_R_AUART  text
+*      -->P_R_VBELN  text
+*      -->P_R_KUNNR  text
+*      -->P_R_ERDAT  text
+*      -->P_RL_VARIANT_LOW  text
+*----------------------------------------------------------------------*
+FORM get_variant_values  USING  p_variant
+                                p_progname.
+
+  DATA: lt_variant_values TYPE TABLE OF rsparams,
+        ls_variant_values TYPE rsparams.
+
+  DATA: r_audat  TYPE RANGE OF char10,
+        r_erdat  TYPE RANGE OF char10,
+        r_aedat  TYPE RANGE OF char10,
+        r_vdatu  TYPE RANGE OF char10,
+        rl_audat LIKE LINE OF r_audat,
+        rl_erdat LIKE LINE OF r_erdat,
+        rl_aedat LIKE LINE OF r_aedat,
+        rl_vdatu LIKE LINE OF r_vdatu.
+
+  CLEAR: gr_vbeln[],
+         gr_auart[],
+         gr_vbtyp[],
+         gr_vkorg[],
+         gr_vtweg[],
+         gr_spart[],
+         gr_kunnr[],
+         gr_kdgrp[],
+         gr_audat[],
+         gr_erdat[],
+         gr_aedat[],
+         gr_vdatu[],
+         gr_matnr[],
+         gr_abgru[],
+         gs_vbeln,
+         gs_auart,
+         gs_vbtyp,
+         gs_vkorg,
+         gs_vtweg,
+         gs_spart,
+         gs_kunnr,
+         gs_kdgrp,
+         gs_audat,
+         gs_erdat,
+         gs_aedat,
+         gs_vdatu,
+         gs_matnr,
+         gs_abgru.
+
+  CALL FUNCTION 'RS_VARIANT_VALUES_TECH_DATA'
+    EXPORTING
+      report               = p_progname
+      variant              = p_variant
+    TABLES
+      variant_values       = lt_variant_values
+*     VARIANT_TEXT         =
+    EXCEPTIONS
+      variant_non_existent = 1
+      variant_obsolete     = 2
+      OTHERS               = 3.
+  IF sy-subrc <> 0.
+* Implement suitable error handling here
+  ENDIF.
+
+  LOOP AT lt_variant_values INTO ls_variant_values WHERE option IS NOT INITIAL.
+    CASE ls_variant_values-selname.
+      WHEN 'S_VBELN'.
+        MOVE-CORRESPONDING ls_variant_values TO gs_vbeln.
+        APPEND gs_vbeln TO gr_vbeln.
+      WHEN 'S_AUART'.
+        MOVE-CORRESPONDING ls_variant_values TO gs_auart.
+        APPEND gs_auart TO gr_auart.
+      WHEN 'S_VBTYP'.
+        MOVE-CORRESPONDING ls_variant_values TO gs_vbtyp.
+        APPEND gs_vbtyp TO gr_vbtyp.
+      WHEN 'S_VKORG'.
+        MOVE-CORRESPONDING ls_variant_values TO gs_vkorg.
+        APPEND gs_vkorg TO gr_vkorg.
+      WHEN 'S_VTWEG'.
+        MOVE-CORRESPONDING ls_variant_values TO gs_vtweg.
+        APPEND gs_vtweg TO gr_vtweg.
+      WHEN 'S_SPART'.
+        MOVE-CORRESPONDING ls_variant_values TO gs_spart.
+        APPEND gs_spart TO gr_spart.
+      WHEN 'S_KUNNR'.
+        MOVE-CORRESPONDING ls_variant_values TO gs_kunnr.
+        APPEND gs_kunnr TO gr_kunnr.
+      WHEN 'S_KDGRP'.
+        MOVE-CORRESPONDING ls_variant_values TO gs_kdgrp.
+        APPEND gs_kdgrp TO gr_kdgrp.
+      WHEN 'S_AUDAT'.
+        MOVE-CORRESPONDING ls_variant_values TO rl_audat.
+        APPEND rl_erdat TO r_erdat.
+        PERFORM date_range TABLES r_audat
+                                  gr_audat.
+      WHEN 'S_ERDAT'.
+        MOVE-CORRESPONDING ls_variant_values TO rl_erdat.
+        APPEND rl_erdat TO r_erdat.
+        PERFORM date_range TABLES r_erdat
+                                  gr_erdat.
+      WHEN 'S_AEDAT'.
+        MOVE-CORRESPONDING ls_variant_values TO rl_aedat.
+        APPEND rl_aedat TO r_aedat.
+        PERFORM date_range TABLES r_aedat
+                                  gr_aedat.
+      WHEN 'S_VDATU'.
+        MOVE-CORRESPONDING ls_variant_values TO rl_vdatu.
+        APPEND rl_vdatu TO r_vdatu.
+        PERFORM date_range TABLES r_vdatu
+                                  gr_vdatu.
+      WHEN 'S_MATNR'.
+        MOVE-CORRESPONDING ls_variant_values TO gs_matnr.
+        APPEND gs_matnr TO gr_matnr.
+      WHEN 'S_ABGRU'.
+        MOVE-CORRESPONDING ls_variant_values TO gs_abgru.
+        APPEND gs_abgru TO gr_abgru.
+    ENDCASE.
+  ENDLOOP.
+
+*  LOOP AT s_erdat INTO sl_erdat.
+*    MOVE: sl_erdat-sign      TO ls_erdat-sign,
+*          sl_erdat-option    TO ls_erdat-option,
+*          sl_erdat-low+6(4)  TO ls_erdat-low(4),
+*          sl_erdat-low(2)    TO ls_erdat-low+4(2),
+*          sl_erdat-low+3(2)  TO ls_erdat-low+6(2),
+*          sl_erdat-high+6(4) TO ls_erdat-high(4),
+*          sl_erdat-high(2)   TO ls_erdat-high+4(2),
+*          sl_erdat-high+3(2) TO ls_erdat-high+6(2).
+*    APPEND ls_erdat TO pr_erdat.
+*  ENDLOOP.
+
+ENDFORM.                    " GET_VARIANT_VALUES
+*&---------------------------------------------------------------------*
+*&      Form  GET_DELIVERY_STATUS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_GT_VBFA  text
+*      -->P_LT_DELSTATUS  text
+*----------------------------------------------------------------------*
+FORM get_delivery_status  TABLES   pt_vbup STRUCTURE vbup
+                                   pt_vbfa STRUCTURE vbfa
+                                   pt_delstatus STRUCTURE vbup.
+
+*get delivery status
+  DATA: lt_vbfa_delivery TYPE TABLE OF vbfa,
+        ls_vbfa_delivery TYPE vbfa,
+        ls_vbup          TYPE vbup.
+
+  REFRESH pt_delstatus.
+
+  LOOP AT pt_vbfa INTO ls_vbfa_delivery WHERE vbtyp_n = 'J'.
+    APPEND ls_vbfa_delivery TO lt_vbfa_delivery.
+  ENDLOOP.
+  DELETE ADJACENT DUPLICATES FROM lt_vbfa_delivery COMPARING ALL FIELDS.
+
+  LOOP AT lt_vbfa_delivery INTO ls_vbfa_delivery.
+    LOOP AT pt_vbup INTO ls_vbup
+            WHERE  vbeln  = ls_vbfa_delivery-vbeln
+              AND  posnr  = ls_vbfa_delivery-posnn.
+      APPEND ls_vbup TO pt_delstatus.
+    ENDLOOP.
+  ENDLOOP.
+
+  SORT pt_delstatus BY vbeln posnr.
+
+ENDFORM.                    " GET_DELIVERY_STATUS
+*&---------------------------------------------------------------------*
+*&      Form  GET_CONDITION_RECORDS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_ORDERNO  text
+*      -->P_GT_KONV  text
+*----------------------------------------------------------------------*
+FORM get_condition_records  TABLES pt_konv STRUCTURE konv
+                            USING  p_orderno.
+
+  DATA: l_knumv TYPE vbak-knumv.
+
+  CLEAR pt_konv[].
+
+  SELECT SINGLE knumv FROM vbak INTO l_knumv
+         WHERE vbeln = p_orderno.
+
+  SELECT * FROM konv INTO TABLE pt_konv
+      WHERE knumv = l_knumv.
+
+ENDFORM.                    " GET_CONDITION_RECORDS
+*&---------------------------------------------------------------------*
+*&      Form  GET_VBEP
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_GT_VBEP  text
+*      -->P_ORDERNO  text
+*----------------------------------------------------------------------*
+FORM get_vbep  TABLES   pt_vbep STRUCTURE vbep
+               USING    p_orderno.
+
+  CLEAR pt_vbep[].
+  SELECT        * FROM  vbep INTO TABLE pt_vbep
+         WHERE  vbeln  = p_orderno.
+  SORT pt_vbep BY vbeln posnr etenr.
+
+
+ENDFORM.                    " GET_VBEP
+*&---------------------------------------------------------------------*
+*&      Form  GET_VBUP
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_GT_VBFA  text
+*      -->P_GT_VBUP  text
+*----------------------------------------------------------------------*
+FORM get_vbup  TABLES   pt_vbfa STRUCTURE vbfa
+                        pt_vbup STRUCTURE vbup.
+
+  REFRESH pt_vbup.
+
+  IF pt_vbfa[] IS NOT INITIAL.
+    SELECT        * FROM  vbup INTO TABLE pt_vbup
+           FOR ALL ENTRIES IN pt_vbfa
+           WHERE  vbeln  = pt_vbfa-vbeln
+           AND    posnr  = pt_vbfa-posnn.
+  ENDIF.
+
+
+ENDFORM.                    " GET_VBUP
+*&---------------------------------------------------------------------*
+*&      Form  DATE_RANGE
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_S_ERDAT  text
+*      <--P_PR_ERDAT  text
+*----------------------------------------------------------------------*
+FORM date_range  TABLES   pr_indate
+                          pr_outdate.
+
+
+  DATA: lr_datum    TYPE RANGE OF datum,
+        ls_datum    LIKE LINE OF lr_datum,
+        lr_datechar TYPE RANGE OF char10,
+        ls_datechar LIKE LINE OF lr_datechar.
+
+  CLEAR pr_outdate[].
+
+  LOOP AT pr_indate INTO ls_datechar.
+    MOVE: ls_datechar-sign      TO ls_datum-sign,
+          ls_datechar-option    TO ls_datum-option,
+          ls_datechar-low+6(4)  TO ls_datum-low(4),
+          ls_datechar-low(2)    TO ls_datum-low+4(2),
+          ls_datechar-low+3(2)  TO ls_datum-low+6(2),
+          ls_datechar-high+6(4) TO ls_datum-high(4),
+          ls_datechar-high(2)   TO ls_datum-high+4(2),
+          ls_datechar-high+3(2) TO ls_datum-high+6(2).
+    APPEND ls_datum TO pr_outdate.
+  ENDLOOP.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  GET_SHIPMETHOD
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_P_ORDERNO  text
+*      -->P_1335   text
+*      -->P_1336   text
+*----------------------------------------------------------------------*
+FORM get_shipmethod  USING  p_order
+                            p_item
+                            p_partner_type
+                     CHANGING p_shipmethod_code
+                              p_shipmethod_text.
+
+
+  CLEAR: p_shipmethod_code,
+         p_shipmethod_text.
+
+  SELECT vbpa~lifnr
+         lfa1~name1
+          INTO ( p_shipmethod_code, p_shipmethod_text )
+          FROM vbpa AS vbpa
+          INNER JOIN lfa1  AS lfa1 ON lfa1~lifnr = vbpa~lifnr
+          WHERE vbpa~vbeln = p_order
+            AND vbpa~posnr = p_item
+            AND vbpa~parvw = p_partner_type .
+  ENDSELECT.
+
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  UPDATE_ORDER_STATUS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_ORD_HDR  text
+*----------------------------------------------------------------------*
+FORM update_order_status  TABLES pt_ord_hdr STRUCTURE zsxx_pr_orderheader.
+
+  DATA: lt_order_header TYPE TABLE OF ztxx_pr_orderhdr,
+        ls_order_header TYPE ztxx_pr_orderhdr.
+
+  LOOP AT pt_ord_hdr ASSIGNING FIELD-SYMBOL(<ls_ord_hdr>).
+    ls_order_header-techsite = <ls_ord_hdr>-website.
+    ls_order_header-vkorg    = <ls_ord_hdr>-salesorg.
+    ls_order_header-spart    = <ls_ord_hdr>-division.
+    ls_order_header-zzorder = |{ <ls_ord_hdr>-orderno ALPHA = IN } |.
+    APPEND  ls_order_header TO lt_order_header.
+  ENDLOOP.
+
+
+  IF lt_order_header[] IS NOT INITIAL.
+*    SELECT techsite,
+*           zzorder,
+*           orderno,
+*           orderstatus
+*           FROM  ztxx_pr_orderhdr INTO TABLE @DATA(lt_ztxx_pr_orderhdr)
+*           FOR ALL ENTRIES IN @lt_order_header
+*           WHERE  techsite  = @lt_order_header-techsite
+*           AND    vkorg     = @lt_order_header-vkorg
+**           AND    vtweg     = @p_ord_hdr-dist
+*           AND    spart     = @lt_order_header-spart
+**       AND    seq       = p_ord_hdr-
+*           AND    zzorder   = @lt_order_header-zzorder.
+
+    SELECT techsite,
+           zzorder,
+           orderno,
+           orderstatus
+           FROM  ztxx_pr_orderhdr INTO TABLE @DATA(lt_ztxx_pr_orderhdr)
+           FOR ALL ENTRIES IN @lt_order_header
+           WHERE  zzorder   = @lt_order_header-zzorder.
+
+    IF sy-subrc = 0.
+      DATA: ls_orderhdr LIKE LINE OF lt_ztxx_pr_orderhdr.
+      SORT lt_ztxx_pr_orderhdr BY orderno.
+
+      LOOP AT pt_ord_hdr ASSIGNING FIELD-SYMBOL(<ord_hdr>).
+        CLEAR ls_orderhdr.
+        READ TABLE lt_ztxx_pr_orderhdr INTO ls_orderhdr WITH KEY orderno = <ord_hdr>-orderno BINARY SEARCH.
+        IF sy-subrc = 0.
+          <ord_hdr>-orderstatus = ls_orderhdr-orderstatus.
+          MODIFY pt_ord_hdr FROM <ord_hdr>.
+        ENDIF.
+
+      ENDLOOP.
+
+    ENDIF.
+  ENDIF.
+
+ENDFORM.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

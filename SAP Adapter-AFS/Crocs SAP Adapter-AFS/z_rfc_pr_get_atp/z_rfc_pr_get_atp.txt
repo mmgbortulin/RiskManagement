@@ -1,0 +1,145 @@
+FUNCTION z_rfc_pr_get_atp.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(I_WEBSITE) TYPE  ZPLUMRIVER_WEBSITE_TECHNICAL
+*"     VALUE(I_VKORG) TYPE  VKORG DEFAULT '%'
+*"     VALUE(I_VTWEG) TYPE  VTWEG DEFAULT '%'
+*"     VALUE(I_SPART) TYPE  SPART DEFAULT '%'
+*"     VALUE(I_REQ_CAT) TYPE  J_4KCATV OPTIONAL
+*"     VALUE(I_PLANT) TYPE  WERKS_D OPTIONAL
+*"     VALUE(I_INCLUDE_ALT_PLANT_ATP) TYPE  CHAR1 OPTIONAL
+*"  TABLES
+*"      TA_MATERIAL STRUCTURE  ZSXX_PR_MATNR OPTIONAL
+*"      TA_PRODH STRUCTURE  ZSXX_PR_PRDHA OPTIONAL
+*"      TA_ATP STRUCTURE  ZTXX_PR_ATP OPTIONAL
+*"----------------------------------------------------------------------
+* This RFC FM is used to get the realtime ATP.
+* This RFC FM calls program zrxxpr_hdi_atp to get the ATP data
+*-----------------------------------------------------------------------
+  DATA:
+      wa_matnr TYPE zsxx_pr_matnr,
+      wa_prdha TYPE zsxx_pr_prdha.
+
+  DATA:
+     lv_memid(60) TYPE c.
+
+  DATA
+     gt_atp TYPE TABLE OF ztxx_pr_atp.
+
+  FIELD-SYMBOLS: <fs> TYPE ANY TABLE. "ztxx_pr_atp.
+
+
+  RANGES:
+      r_matnr FOR vbap-matnr,
+      r_vkorg FOR vbak-vkorg,
+      r_vtweg FOR vbak-vtweg,
+      r_spart FOR vbak-spart,
+      r_reqc  FOR j_4kvals-j_4kscat,
+      r_plant FOR vbap-werks,
+      r_prdha FOR mara-prdha.
+
+* Convert the input data to RFC to select-options of the program.
+* Material
+  LOOP AT ta_material INTO wa_matnr.
+    r_matnr-sign = 'I'.
+    r_matnr-option = 'EQ'.
+
+*   convert material to internal format
+    CALL FUNCTION 'CONVERSION_EXIT_MATN1_INPUT'
+      EXPORTING
+        input        = wa_matnr-matnr
+      IMPORTING
+        output       = wa_matnr-matnr
+      EXCEPTIONS
+        length_error = 1
+        OTHERS       = 2.
+    IF sy-subrc <> 0.
+*      MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*         WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+    ENDIF.
+
+    r_matnr-low = wa_matnr-matnr.
+    APPEND r_matnr.
+  ENDLOOP.
+
+* Sales org
+  IF NOT i_vkorg IS INITIAL.
+    r_vkorg-sign = 'I'.
+    r_vkorg-option = 'EQ'.
+    r_vkorg-low = i_vkorg.
+    APPEND r_vkorg.
+  ENDIF.
+
+* Dist ch
+  IF NOT i_vtweg IS INITIAL.
+    r_vtweg-sign = 'I'.
+    r_vtweg-option = 'EQ'.
+    r_vtweg-low = i_vtweg.
+    APPEND r_vtweg.
+  ENDIF.
+
+* Div
+  IF NOT i_spart IS INITIAL.
+    r_spart-sign = 'I'.
+    r_spart-option = 'EQ'.
+    r_spart-low = i_spart.
+    APPEND r_spart.
+  ENDIF.
+
+* Req Category
+  IF NOT i_req_cat IS INITIAL.
+    r_reqc-sign = 'I'.
+    r_reqc-option = 'EQ'.
+    r_reqc-low = i_req_cat.
+    APPEND r_reqc.
+  ENDIF.
+* Plant
+  IF NOT i_plant IS INITIAL.
+    r_plant-sign = 'I'.
+    r_plant-option = 'EQ'.
+    r_plant-low = i_plant.
+    APPEND r_plant.
+  ENDIF.
+
+* Product Hierarchy
+  LOOP AT ta_prodh INTO wa_prdha.
+    IF wa_prdha-flag = 'I'.
+      r_prdha-sign = 'I'.
+      r_prdha-option = 'EQ'.
+      r_prdha-low = wa_prdha-prdha.
+      APPEND r_prdha.
+    ELSEIF wa_prdha-flag = 'E'.
+      r_prdha-sign = 'E'.
+      r_prdha-option = 'EQ'.
+      r_prdha-low = wa_prdha-prdha.
+      APPEND r_prdha.
+    ENDIF.
+  ENDLOOP.
+
+* Memory ID
+  CONCATENATE 'PR_ATP' sy-datum sy-uzeit INTO lv_memid .
+
+* Call ATP program to fetch data
+  SUBMIT zrxxpr_hdi_atp "VIA SELECTION-SCREEN
+    WITH p_tsite = i_website
+    WITH s_matnr  IN r_matnr
+    WITH s_vkorg  IN r_vkorg
+    WITH s_vtweg  IN r_vtweg
+    WITH s_spart  IN r_spart
+    WITH s_4krcat IN r_reqc
+    WITH s_werks  IN r_plant
+    WITH s_prdha  IN r_prdha
+    WITH p_expmem = 'X'
+    WITH p_memid  = lv_memid
+    WITH p_altwh  = i_include_alt_plant_atp
+     AND RETURN.
+
+* return the data back
+  IMPORT gt_atp FROM MEMORY ID lv_memid.
+  ta_atp[] = gt_atp[].
+
+ENDFUNCTION.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

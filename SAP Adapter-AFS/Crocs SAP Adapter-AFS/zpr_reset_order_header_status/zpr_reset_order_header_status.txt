@@ -1,0 +1,112 @@
+FUNCTION zpr_reset_order_header_status.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  TABLES
+*"      ORDER STRUCTURE  ZTXX_PR_ORDERHDR
+*"      ORDERLINE STRUCTURE  ZTXX_PR_ORDERLIN
+*"----------------------------------------------------------------------
+  TYPES: BEGIN OF typ_order_line,
+           zzorder TYPE ztxx_pr_orderlin-zzorder,
+           status  TYPE ztxx_pr_orderlin-status,
+         END OF typ_order_line.
+
+  DATA: lt_order           TYPE TABLE OF ztxx_pr_orderhdr,
+        lt_orderline       TYPE TABLE OF typ_order_line,
+        ls_order           TYPE ztxx_pr_orderhdr,
+        ls_orderline       TYPE typ_order_line,
+        l_status           TYPE ztxx_pr_orderlin-status,
+        l_count_orderline  TYPE i,
+        l_count_complete   TYPE i,
+        l_count_partial    TYPE i,
+        l_count_cancelled  TYPE i,
+        l_count_open       TYPE i,
+        l_count_in_process TYPE i,
+        l_index            TYPE sy-index.
+
+  CONSTANTS: c_complete   TYPE ztxx_pr_orderlin-status VALUE 'COMPLETE',
+             c_partial    TYPE ztxx_pr_orderlin-status VALUE 'PARTIAL',
+             c_cancelled  TYPE ztxx_pr_orderlin-status VALUE 'CANCELLED',
+             c_open       TYPE ztxx_pr_orderlin-status VALUE 'OPEN',
+             c_in_process TYPE ztxx_pr_orderlin-status VALUE 'IN PROCESS'.
+
+  MOVE-CORRESPONDING orderline[] TO lt_orderline.
+  SORT lt_orderline BY zzorder.
+
+  MOVE: order[]     TO lt_order.
+  REFRESH: order.
+
+  SORT lt_order BY zzorder.
+
+  CLEAR: l_count_orderline,
+         l_count_complete,
+         l_count_partial,
+         l_count_cancelled,
+         l_count_open,
+         l_count_in_process.
+
+  LOOP AT lt_orderline INTO ls_orderline.
+
+    ADD 1 TO l_count_orderline.
+
+    CASE ls_orderline-status.
+      WHEN c_complete.
+        ADD 1 TO l_count_complete.
+      WHEN c_partial.
+        ADD 1 TO l_count_partial.
+      WHEN c_cancelled.
+        ADD 1 TO l_count_cancelled.
+      WHEN c_open.
+        ADD 1 TO l_count_open.
+      WHEN c_in_process.
+        ADD 1 TO l_count_in_process.
+    ENDCASE.
+
+    AT END OF zzorder.
+
+*ALL ITEMS ARE COMPLETE
+      IF l_count_orderline = l_count_complete.
+        MOVE c_complete TO l_status.
+*ALL ITEMS ARE CANCELLED
+      ELSEIF l_count_orderline = l_count_cancelled.
+        MOVE c_cancelled TO l_status.
+*ONE ITEM IS PARTIAL
+      ELSEIF l_count_partial > 0.
+        MOVE c_partial TO l_status.
+*ONE ITEM IS IN PROCESS
+      ELSEIF l_count_in_process > 0.
+        MOVE c_in_process TO l_status.
+*ALL ITEMS ARE COMPLETE OR CANCELLED => COMPLETE
+      ELSEIF l_count_orderline = l_count_complete + l_count_cancelled.
+        MOVE c_complete TO l_status.
+*ALL ITEMS ARE OPEN OR CANCELLED => OPEN
+      ELSEIF l_count_orderline = l_count_open + l_count_cancelled.
+        MOVE c_open TO l_status.
+      ELSE.
+        MOVE c_partial TO l_status.
+      ENDIF.
+
+      CLEAR ls_order.
+      READ TABLE lt_order INTO ls_order WITH KEY zzorder = ls_orderline-zzorder BINARY SEARCH.
+      IF sy-subrc = 0.
+        IF l_status <> ls_order-orderstatus.
+          MOVE l_status TO ls_order-orderstatus.
+          MODIFY lt_order FROM ls_order INDEX sy-tabix TRANSPORTING orderstatus.
+        ENDIF.
+      ENDIF.
+
+      CLEAR: l_count_orderline,
+             l_count_complete,
+             l_count_partial,
+             l_count_cancelled,
+             l_count_open,
+             l_count_in_process.
+
+    ENDAT.
+  ENDLOOP.
+
+  MOVE: lt_order[] TO order[].
+
+ENDFUNCTION.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

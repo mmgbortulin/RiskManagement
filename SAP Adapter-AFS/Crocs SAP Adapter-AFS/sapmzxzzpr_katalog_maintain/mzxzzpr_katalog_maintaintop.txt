@@ -1,0 +1,81 @@
+*&---------------------------------------------------------------------*
+*& Include MZXZZPR_KATALOG_MAINTAINTOP                                 *
+*&                                                                     *
+*&---------------------------------------------------------------------*
+
+PROGRAM  SAPMZXZZPR_KATALOG_MAINTAIN   .
+
+INCLUDE <ICON>.
+
+***&spwizard: data declaration for tablecontrol 'TC_KATALOG'
+*&spwizard: definition of ddic-table
+tables:   ZTXX_PR_KATALOG.
+
+*&spwizard: type for the data of tablecontrol 'TC_KATALOG'
+types: begin of t_TC_KATALOG,
+         TECHSITE like ZTXX_PR_KATALOG-TECHSITE,
+         CATALOGX like ZTXX_PR_KATALOG-CATALOGX,
+         LOCALEID like ZTXX_PR_KATALOG-LOCALEID,
+         DESCRIPTION like ZTXX_PR_KATALOG-DESCRIPTION,
+         CATALOGTYPE like ZTXX_PR_KATALOG-CATALOGTYPE,
+         ENABLED like ZTXX_PR_KATALOG-ENABLED,
+         flag,       "flag for mark column
+       end of t_TC_KATALOG.
+
+*&spwizard: internal table for tablecontrol 'TC_KATALOG'
+data:     g_TC_KATALOG_itab   type t_TC_KATALOG occurs 0,
+          g_TC_KATALOG_wa     type t_TC_KATALOG. "work area
+data:     g_TC_KATALOG_copied.           "copy flag
+
+*&spwizard: declaration of tablecontrol 'TC_KATALOG' itself
+controls: TC_KATALOG type tableview using screen 0100.
+
+*&spwizard: lines of tablecontrol 'TC_KATALOG'
+data:     g_TC_KATALOG_lines  like sy-loopc.
+
+data:     OK_CODE like sy-ucomm,
+          save_okay like OK_CODE,
+          GV_MODE(2).        "Pos. 1:  V: Change; H: Create; C: Copy
+                             "Pos. 2 (key):  D: Display; M: Modify
+
+* Work area for Catalog Text Key
+DATA: BEGIN OF GS_TEXTKEY,
+        TDOBJECT TYPE STXH-TDOBJECT,        "ZPLUMRIVER
+        TDNAME TYPE STXH-TDNAME,            "
+        TDID TYPE STXH-TDID,                "TXT
+        TDSPRAS TYPE STXH-TDSPRAS,
+      END OF GS_TEXTKEY.
+
+* SAPScript table work area and table
+data:  GS_TLINE type TLINE.
+DATA:  GT_TLINE like standard table of GS_TLINE
+                with non-unique key TDFORMAT
+                initial size 10.
+
+* Work area and table for update
+data:  gs_katalog type ztxx_pr_katalog.
+
+data:  gt_katalog like standard table of gs_katalog
+                  with non-unique key MANDT TECHSITE CATALOGX
+                  initial size 0.
+
+* temporary work area to determine changes
+data:  gs_tmp like gs_katalog.
+
+
+DATA:  GV_TECHSITE TYPE ZTXX_PR_WEBSITE-WEBSITE,
+       GV_SUBRC type sysubrc,
+       GV_TABIX type sytabix,
+       GX_TEXT,                   "X:  Update text needed
+       GV_answer(1).
+
+* Screen 200 pushbuttons
+DATA:  PB_CREATE_TEXT(30) value 'Create Text',
+       PB_CHANGE_TEXT(30) value 'Change Text',
+       PB_CATTEXT type ICONS-TEXT.
+
+field-symbols:  <Katalog> like gs_katalog,
+                <itab> like g_TC_KATALOG_wa.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

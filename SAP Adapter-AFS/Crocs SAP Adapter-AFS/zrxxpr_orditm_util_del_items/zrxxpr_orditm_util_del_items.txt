@@ -1,0 +1,208 @@
+*&---------------------------------------------------------------------*
+*& Report  ZRXXPR_ORDITM_UTIL_DEL_ITEMS
+*&
+*&---------------------------------------------------------------------*
+*& This program will delete item rows from ztxx_pr_orderlin that have been
+*& deleted in SAP.  As an option Header rows can be deleted that have no items
+*& in ztxx_pr_orderlin.
+*&
+*&---------------------------------------------------------------------*
+REPORT zrxxpr_orditm_util_del_items.
+
+TABLES: ztxx_pr_orderhdr,
+        ztxx_pr_orderlin,
+        vbap.
+
+SELECT-OPTIONS: s_site  FOR ztxx_pr_orderhdr-techsite,
+                s_vkorg FOR ztxx_pr_orderhdr-vkorg,
+                s_vtweg FOR ztxx_pr_orderhdr-vtweg,
+                s_spart FOR ztxx_pr_orderhdr-spart,
+                s_order FOR ztxx_pr_orderhdr-zzorder,
+                s_date  FOR vbap-erdat NO-EXTENSION.
+PARAMETERS: p_group TYPE sy-index DEFAULT '1000'.
+PARAMETERS: p_head AS CHECKBOX.
+
+PARAMETERS: p_test AS CHECKBOX.
+
+TYPES: BEGIN OF gt_orderlin,
+         vbeln TYPE vbeln,
+         posnr TYPE posnr,
+       END OF gt_orderlin.
+
+DATA: gt_ztxx_pr_orderhdr       TYPE TABLE OF ztxx_pr_orderhdr,
+      gs_ztxx_pr_orderhdr       TYPE ztxx_pr_orderhdr,
+      gt_orders                 TYPE TABLE OF ztxx_pr_orderhdr,
+      gs_orders                 TYPE ztxx_pr_orderhdr,
+      gt_ztxx_pr_orderlin       TYPE TABLE OF ztxx_pr_orderlin,
+      gs_ztxx_pr_orderlin       TYPE ztxx_pr_orderlin,
+      gt_vbap                   TYPE TABLE OF vbap,
+      gs_vbap                   TYPE vbap,
+      gt_vbep                   TYPE TABLE OF vbep,
+      gs_vbep                   TYPE vbep,
+      l_delete_line_count       TYPE i,
+      l_delete_head_count       TYPE i,
+      l_delete_sched_line_count TYPE i,
+      l_ord_start_index         TYPE sy-index,
+      l_ord_end_index           TYPE sy-index,
+      l_lines                   TYPE i.
+
+DATA: r_date  TYPE RANGE OF ztxx_pr_orderhdr-dateordered,
+      rl_date LIKE LINE OF r_date.
+
+IF s_date[] IS NOT INITIAL.
+  MOVE: s_date-sign      TO rl_date-sign,
+        s_date-option    TO rl_date-option.
+  IF s_date-low IS NOT INITIAL.
+    MOVE: s_date-low(4)    TO rl_date-low(4),
+          s_date-low+4(2)  TO rl_date-low+4(2),
+          s_date-low+6(2)  TO rl_date-low+6(2),
+          '000000'         TO rl_date-low+8(6).
+  ENDIF.
+  IF s_date-high IS NOT INITIAL.
+    MOVE: s_date-high(4)    TO rl_date-high(4),
+          s_date-high+4(2)  TO rl_date-high+4(2),
+          s_date-high+6(2)  TO rl_date-high+6(2),
+          '000000'          TO rl_date-high+8(6).
+  ENDIF.
+  APPEND rl_date TO r_date.
+ENDIF.
+
+SELECT        * FROM  ztxx_pr_orderhdr INTO TABLE gt_orders
+       WHERE  techsite      IN s_site
+       AND    vkorg         IN s_vkorg
+       AND    vtweg         IN s_vtweg
+       AND    spart         IN s_spart
+       AND    zzorder       IN s_order
+       AND    dateordered   IN r_date.
+
+DESCRIBE TABLE gt_orders LINES l_lines.
+
+l_ord_start_index = 1.
+l_ord_end_index   = p_group.
+
+
+LOOP AT gt_orders INTO gs_orders.
+
+  gs_ztxx_pr_orderhdr = gs_orders.
+  APPEND gs_ztxx_pr_orderhdr TO gt_ztxx_pr_orderhdr.
+
+  IF sy-tabix = l_ord_end_index OR
+     sy-tabix = l_lines.
+
+    l_ord_end_index = l_ord_end_index + p_group.
+
+    PERFORM delete_table_entries.
+
+    free: gt_ztxx_pr_orderhdr[],
+          gt_ztxx_pr_orderlin[],
+          gt_vbep[].
+  ENDIF.
+ENDLOOP.
+
+IF sy-subrc = 0.
+  IF p_test = 'X'.
+    ROLLBACK WORK.
+    WRITE: /1 'Rollback'.
+  ELSE.
+    COMMIT WORK.
+    WRITE: /1 'Commit'.
+  ENDIF.
+ENDIF.
+
+*&---------------------------------------------------------------------*
+*&      Form  DELETE_TABLE_ENTRIES
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM delete_table_entries.
+
+  IF gt_ztxx_pr_orderhdr[] IS NOT INITIAL.
+    SELECT        * FROM  ztxx_pr_orderlin INTO TABLE gt_ztxx_pr_orderlin
+           FOR ALL ENTRIES IN gt_ztxx_pr_orderhdr
+           WHERE  techsite  = gt_ztxx_pr_orderhdr-techsite
+           AND    vkorg     = gt_ztxx_pr_orderhdr-vkorg
+           AND    vtweg     = gt_ztxx_pr_orderhdr-vtweg
+           AND    spart     = gt_ztxx_pr_orderhdr-spart
+           AND    zzorder   = gt_ztxx_pr_orderhdr-zzorder.
+  ENDIF.
+
+  IF NOT gt_ztxx_pr_orderlin[] IS INITIAL.
+    SELECT * FROM  vbep INTO TABLE gt_vbep
+           FOR ALL ENTRIES IN gt_ztxx_pr_orderlin
+           WHERE  vbeln  = gt_ztxx_pr_orderlin-zzorder.
+    SORT gt_vbep BY vbeln posnr etenr.
+  ENDIF.
+
+*delete schedule line items rows not in SAP
+  LOOP AT gt_ztxx_pr_orderlin INTO gs_ztxx_pr_orderlin.
+    READ TABLE gt_vbep TRANSPORTING NO FIELDS WITH KEY vbeln = gs_ztxx_pr_orderlin-zzorder
+                                                       posnr = gs_ztxx_pr_orderlin-zzordlineno
+                                                       etenr = gs_ztxx_pr_orderlin-zzschlineno BINARY SEARCH.
+    IF sy-subrc <> 0.
+      DELETE ztxx_pr_orderlin FROM gs_ztxx_pr_orderlin.
+      WRITE: /1 gs_ztxx_pr_orderlin.
+      ADD 1 TO l_delete_sched_line_count.
+    ENDIF.
+  ENDLOOP.
+  SKIP 1.
+  WRITE: /1 'Scedule Line Rows deleted from ZTXX_PR_ORDERLIN', l_delete_sched_line_count.
+  SKIP 1.
+  FREE gt_vbep.
+
+  IF NOT gt_ztxx_pr_orderlin[] IS INITIAL.
+    SELECT * FROM  vbap INTO TABLE gt_vbap
+           FOR ALL ENTRIES IN gt_ztxx_pr_orderlin
+           WHERE  vbeln  = gt_ztxx_pr_orderlin-zzorder.
+    SORT gt_vbap BY vbeln posnr.
+  ENDIF.
+
+*delete items rows not in SAP
+  LOOP AT gt_ztxx_pr_orderlin INTO gs_ztxx_pr_orderlin.
+    READ TABLE gt_vbap TRANSPORTING NO FIELDS WITH KEY vbeln = gs_ztxx_pr_orderlin-zzorder posnr = gs_ztxx_pr_orderlin-zzordlineno BINARY SEARCH.
+    IF sy-subrc <> 0.
+      DELETE ztxx_pr_orderlin FROM gs_ztxx_pr_orderlin.
+      WRITE: /1 gs_ztxx_pr_orderlin.
+      ADD 1 TO l_delete_line_count.
+      DELETE gt_ztxx_pr_orderlin.
+    ENDIF.
+  ENDLOOP.
+  SKIP 1.
+  WRITE: /1 'Rows deleted from ZTXX_PR_ORDERLIN', l_delete_line_count.
+  SKIP 1.
+
+*delete headers with no items
+  IF p_head = 'X'.
+    SORT gt_ztxx_pr_orderlin BY zzorder.
+    LOOP AT gt_ztxx_pr_orderhdr INTO gs_ztxx_pr_orderhdr.
+      READ TABLE gt_ztxx_pr_orderlin INTO gs_ztxx_pr_orderlin TRANSPORTING NO FIELDS WITH KEY zzorder = gs_ztxx_pr_orderhdr-zzorder BINARY SEARCH.
+      IF sy-subrc <> 0.
+        DELETE ztxx_pr_orderhdr FROM gs_ztxx_pr_orderhdr.
+        WRITE: /1 gs_ztxx_pr_orderhdr.
+        ADD 1 TO l_delete_head_count.
+      ENDIF.
+    ENDLOOP.
+    SKIP 1.
+    WRITE: /1 'Rows deleted from ZTXX_PR_ORDERHDR', l_delete_head_count.
+    SKIP 1.
+  ENDIF.
+
+ENDFORM.
+
+
+*Selection texts
+*----------------------------------------------------------
+* P_GROUP         Process Orders in Groups of
+* P_HEAD         Delete Header Rows
+* P_TEST         Test (No Commit)
+* S_DATE         Date
+* S_ORDER         Order Number
+* S_SITE         Website
+* S_SPART         Division
+* S_VKORG         Sales Organization
+* S_VTWEG         Distribution Channel
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

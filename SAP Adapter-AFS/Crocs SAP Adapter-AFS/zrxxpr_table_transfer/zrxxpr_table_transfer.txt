@@ -1,0 +1,661 @@
+REPORT ZRXXPR_TABLE_TRANSFER No Standard Page Heading.
+************************************************************************
+*  PROGRAM    : ZRXXPR_TABLE_TRANSFER
+*  PROGRAMMER : SLECOURS (Steve LeCours - Clientis)
+*  CREATED    : 3/9/2011
+*  APPLICATION: PlumRiver
+*  DESCRIPTION: Read SAP database table(s), reformat for text-based,
+*               comma-delimited processing, and transfer the resulting
+*               file to the user's desktop.
+*----------------------------------------------------------------------*
+*----------------------------------------------------------------------*
+*=======================================================================
+* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*  PlumRiver LLC
+*  Version 2.0.00
+*  Delivered:  March 9, 2011
+* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*=======================================================================
+
+************************************************************************
+************************** DECLARATIONS ********************************
+************************************************************************
+* Work Areas
+tables:  ZTXX_PR_FIELDMAP,      "SAP --> PR HDI fieldname conversion
+         dd02l,                 "SAP tables
+         dd03l.                 "Table Fields
+
+* List of SAP tables
+DATA: BEGIN OF gs_tables,
+        tabname TYPE dd02l-tabname,
+      END OF gs_tables.
+
+DATA:  gt_tables like standard table of gs_tables
+                  with non-unique key tabname
+                  initial size 10.
+
+* SAP table fields
+DATA: BEGIN OF gs_fields,
+        tabname TYPE dd03l-tabname,
+        fieldname TYPE dd03l-fieldname,
+        as4local TYPE dd03l-as4local,
+        position TYPE dd03l-position,
+        keyflag TYPE dd03l-keyflag,
+        rollname TYPE dd03l-rollname,
+        inttype TYPE dd03l-inttype,
+        intlen TYPE dd03l-intlen,
+        precfield TYPE dd03l-precfield,
+        datatype TYPE dd03l-datatype,
+        leng TYPE dd03l-leng,
+        decimals TYPE dd03l-decimals,
+        domname TYPE dd03l-domname,
+        comptype TYPE dd03l-comptype,
+        HDIFIELD TYPE ZTXX_PR_FIELDMAP-HDIFIELD,
+      END OF gs_fields.
+
+DATA:  GT_FIELDS like standard table of gs_fields
+                 with non-unique key tabname fieldname
+                 initial size 50.
+
+* Work area and table for HDI converted fields
+DATA: GS_HDIFIELDS TYPE ZTXX_PR_FIELDMAP.
+
+DATA:  GT_HDIFIELDS LIKE HASHED TABLE OF GS_HDIFIELDS
+                    WITH UNIQUE KEY  TABNAME FIELDNAME
+                    INITIAL SIZE 50.
+
+
+*** Fields
+DATA:  GV_STRING type string,
+       GX_OPEN,                          "flag: file opened?
+       GV_LINE type string,
+       GV_ifile type string,
+       GV_tfile type string,
+       GV_stdfile type ZTXX_PR_FILEXFER-filename,
+       GV_NAME(30),
+       GV_HDIDATE(20),
+       GV_TABIX type sytabix,            "table index
+       GV_SUBRC type sysubrc,
+       Gv_catalogtext type ZSXX_PR_CATALOG_EXT-CATALOGTEXT,
+       GV_CodeText type ZSXX_PR_CODE_EXT-DESCRIPTION.
+
+DATA: DREF type ref to data.      "object for data reference
+
+*** CONSTANTS
+CONSTANTS: GC_Dummy(9) value 'Dummy.txt',
+           lc_cret TYPE x VALUE '0D',  "Carriage Return (non Unicode)
+           lc_tab TYPE x VALUE '09'.   "Tabulator (non Unicode)
+
+
+*** FIELD SYMBOLS
+Field-symbols:  <wa> type any,
+                <fld> type any,
+                <HDI> LIKE GS_HDIFIELDS,
+                <fields> like gs_fields.
+
+FIELD-SYMBOLS:  <CATALOG> TYPE C,
+                <SALESORG> TYPE C,
+                <KEYWORD> TYPE C,
+                <CODE> TYPE C.
+
+
+
+************************************************************************
+*********************   SELECTION SCREEN   *****************************
+************************************************************************
+* Block 1
+selection-screen begin of block blk1 with frame title text-T01.
+  select-options:  s_table for dd02l-TABNAME
+                           obligatory.
+*                           default 'ZTXX_PR_STYLE'.
+*                           no intervals.
+  selection-screen skip 1.
+  selection-screen begin of line.
+    parameters:  p_nokey as checkbox default 'X'.
+    selection-screen comment 4(40) tx_nokey.
+  selection-screen end of line.
+selection-screen end of block blk1.
+
+* Block 2 (file paths)
+selection-screen begin of block blk2 with frame title text-T02.
+  parameters:  p_ipath(80) lower case obligatory,
+               p_tpath(80) lower case obligatory default 'C:\Temp\'.
+selection-screen end of block blk2.
+* Block 3 (additional criteria)
+selection-screen begin of block blk3 with frame title text-T03.
+  selection-screen begin of line.
+    parameters:  p_dsktop as checkbox default 'X'.
+    selection-screen comment 4(40) t_dsktop.
+  selection-screen end of line.
+  selection-screen begin of line.
+    parameters:  p_stdnam as checkbox default 'X'.
+    selection-screen comment 4(40) t_stdnam.
+  selection-screen end of line.
+selection-screen end of block blk3.
+* Block 4 (DONE file)
+selection-screen begin of block blk4 with frame title text-B04.
+  selection-screen begin of line.
+    parameters:  p_DONE as checkbox default 'X'.
+    selection-screen comment 4(40) t_DONE.
+  selection-screen end of line.
+  parameters:  P_FILDON(50) lower case
+                            obligatory
+                            default 'DONE.txt'.
+selection-screen end of block blk4.
+
+
+
+************************************************************************
+*********************   INITIALIZATION   *******************************
+************************************************************************
+Initialization.
+  TX_NOKEY = 'Exclude Primary Key fields'(T04).
+  T_DSKTOP = 'Target path is the Desktop'(T05).
+  T_STDNAM = 'Use PlumRiver Standard download filename'(T06).
+  T_DONE = 'Create a "DONE" file'(T07).
+  concatenate 'D:\usr\sap\'
+               sy-sysid
+              '\DVEBMGSXX\work\'
+        into p_ipath.
+* fill table name selection
+  clear:  s_table.
+  s_table-sign = 'I'.
+  s_table-option = 'EQ'.
+  select tabname
+     from ZTXX_PR_FILEXFER into s_table-low.
+    append s_table.
+  endselect.
+  sort s_table by low.
+  delete adjacent duplicates from s_table comparing low.
+
+
+
+************************************************************************
+******************   AT SELECTION-SCREEN   *****************************
+************************************************************************
+AT SELECTION-SCREEN OUTPUT.
+  IF p_dsktop is initial.
+*-- files will be written to application server... intermediate path
+*-- will not be used, so make it display only.
+    LOOP AT SCREEN.
+      IF SCREEN-NAME = 'P_IPATH'.
+        SCREEN-INPUT = 0.
+        MODIFY SCREEN.
+      ENDIF.
+    ENDLOOP.   "AT SCREEN
+  ENDIF.   "p_dsktop is initial
+
+
+
+************************************************************************
+******************   START-OF-SELECTION   ******************************
+************************************************************************
+START-OF-SELECTION.
+
+* Get list of SAP tables
+  select tabname
+     from dd02l into table gt_tables
+     where tabname in s_table.
+  if sy-subrc = 0.
+*-- we have a list of tables to process...
+*-- First, build HDI fieldname exception list
+    select *
+        from ZTXX_PR_FIELDMAP into GS_HDIFIELDS
+        where tabname in s_table.
+      insert gs_hdifields into table gt_hdifields.
+    endselect.
+*-- Now, continue processing
+    loop at gt_tables into gs_tables.
+      clear: dref,
+             gx_OPEN,
+             gv_ifile,
+             gv_tfile,
+             gs_fields,
+             gt_fields.
+*---- first, create file path and names and open dataset
+      if p_dsktop is initial.
+*------ target will be application server.  gv_ifile will also
+*------ serve as the target file.
+        if not p_stdnam is initial.
+          select single filename
+                   from ZTXX_PR_FILEXFER into GV_stdfile
+                   where tabname = gs_tables-tabname.
+          if sy-subrc = 0.
+*------------ assign std filename to target filename field
+            concatenate  p_tpath
+                         GV_stdfile
+                  into gv_ifile.
+          else.
+*------------ use default filename
+            concatenate  p_tpath
+                         gs_tables-tabname
+                         '_'
+                         sy-datum
+                         sy-uzeit
+                         '.csv'
+                    into gv_ifile.
+          endif.   "sy-subrc = 0 [ON select single filename...]
+        else.
+*---------- use default filename
+          concatenate  p_tpath
+                       gs_tables-tabname
+                       '_'
+                       sy-datum
+                       sy-uzeit
+                       '.csv'
+                  into gv_ifile.
+        endif.   "not p_stdnam is initial
+      else.
+*------ target will be desktop, but will use intermediate path for
+*------ Dummy file to be renamed when transferring to desktop
+        concatenate p_ipath            "intermediate path
+                   'Dummy.csv'         "filename
+                into gv_ifile.
+      endif.
+      open dataset gv_ifile for output
+                            in text mode
+                            encoding DEFAULT.
+      if sy-subrc = 0.
+        gx_open = 'X'.
+      else.
+        message i804(/SAPDMC/LSMW) with gv_ifile.
+        exit.         "leave processing
+      endif.
+*---- get table field names
+      select  tabname fieldname as4local
+              position keyflag rollname
+              inttype intlen precfield
+              datatype leng decimals
+              domname comptype
+          from dd03l into table gt_fields
+          where tabname = gs_tables-tabname   and
+                AS4LOCAL = 'A'.                       "active
+      if sy-subrc = 0.
+*------ table fields retrieved... begin processing.
+        sort gt_fields by position.
+        delete gt_fields where comptype <> 'E'.      "E: data element
+        if p_nokey = 'X'.
+          delete gt_fields where keyflag = 'X'.    "primary key
+        endif.
+*------ write header line.
+        clear: gv_line,
+               gv_tabix.
+        loop at gt_fields assigning <fields>.
+          gv_tabix = gv_tabix + 1.
+*-------- Check for HDI fieldname exceptions (that don't match)
+          READ TABLE GT_HDIFIELDS ASSIGNING <HDI>
+                        with table key TABNAME = <fields>-TABNAME
+                                       FIELDNAME = <fields>-FIELDNAME.
+          IF SY-SUBRC = 0.
+*---------- corresponding HDI fieldname does not match SAP DB fieldname
+            <fields>-HDIFIELD = <HDI>-HDIFIELD.
+          ELSE.
+*---------- HDI fieldname is same in SAP database table
+            <fields>-HDIFIELD = <fields>-FIELDNAME.
+          ENDIF.
+          if gv_tabix = 1.
+*------------ first field
+            concatenate '"'
+                        <fields>-HDIfield
+                        '"'
+                    into gv_line.
+          else.
+*------------ subsequent fields
+            concatenate gv_line
+                        ',"'
+                        <fields>-HDIfield
+                        '"'
+                    into gv_line.
+          endif.   "gv_tabix = 1
+        endloop.  "at gt_fields assigning <fields>
+*------ send header line to output file
+        transfer gv_line to gv_ifile.
+      else.
+        write: / 'Fields of table', gs_tables-tabname,
+                 'could not be found'.
+        if gx_open = 'X'.
+          close dataset gv_ifile.
+          if sy-subrc = 0.
+            clear:  gx_open.
+          endif.
+        endif.   "gx_open = 'X'
+        continue.
+      endif.   "sy-subrc = 0 [when retrieving table field names]
+*---- Now begin retrieving records from the database table
+      CREATE DATA DRef type (gs_tables-tabname).
+      assign DRef->* to <wa>.
+      select *
+          from (gs_tables-tabname)
+          into <wa>.
+  .     clear: gv_line.
+        loop at gt_fields assigning <fields>.
+          assign component <fields>-fieldname of structure <wa>
+                                              to <fld>.
+          if sy-subrc <> 0.
+            unassign <fld>.
+          endif.
+*-------- HANDLE LONG TEXTS (> CHAR255) IN THE FOLLOWING CASE STATEMENT.
+          CASE <fields>-TABNAME.
+            WHEN 'ZTXX_PR_CATALOG'.
+              IF <FIELDS>-FIELDNAME = 'CATALOGTEXT'.
+                GV_NAME = 'CATALOGX'.
+                ASSIGN COMPONENT GV_NAME OF STRUCTURE <wa>
+                                         TO <CATALOG>.
+                IF SY-SUBRC = 0.
+                  clear:  GV_CatalogText.
+                  PERFORM GET_SAP_LONGTEXT(ZIXXPR_SUBS900)
+                                          IF FOUND
+                                          USING  <FLD>
+                                       CHANGING  GV_CatalogText.
+                  ASSIGN GV_CatalogText TO <FLD>.
+                  if sy-subrc <> 0.
+                    unassign <fld>.
+                  endif.
+                ENDIF.   "SY-SUBRC = 0 [ON ASSIGN COMPONENT GV_NAME...]
+              ENDIF.   "<FIELDS>-FIELDNAME = 'CATALOGTEXT'
+            WHEN 'ZTXX_PR_CODE'.
+              IF <FIELDS>-FIELDNAME = 'DESCRIPTION'.
+*                GV_NAME = 'SALESORG'.
+*                ASSIGN COMPONENT GV_NAME OF STRUCTURE <wa>
+*                                         TO <SALESORG>.
+*                GV_NAME = 'KEYWORD'.
+*                ASSIGN COMPONENT GV_NAME OF STRUCTURE <wa>
+*                                         TO <KEYWORD>.
+*                GV_NAME = 'CODE'.
+*                ASSIGN COMPONENT GV_NAME OF STRUCTURE <wa>
+*                                         TO <CODE>.
+*                IF SY-SUBRC = 0.
+*                  perform GET_CODE_DESCRIPTION(ZIXXPR_SUBS900)
+*                                               IF FOUND
+*                                               using <SALESORG>
+*                                                     <KEYWORD>
+*                                                     <CODE>
+*                                            changing GV_CodeText.
+                clear:  GV_CodeText.
+                PERFORM GET_SAP_LONGTEXT(ZIXXPR_SUBS900)
+                                        IF FOUND
+                                        USING  <FLD>
+                                     CHANGING  GV_CodeText.
+                ASSIGN GV_CodeText TO <FLD>.
+                if sy-subrc <> 0.
+                  unassign <fld>.
+                endif.
+*                ENDIF.   "SY-SUBRC = 0 [ON ASSIGN COMPONENT GV_NAME...]
+              ENDIF.   "<FIELDS>-FIELDNAME = 'DESCRIPTION'
+            WHEN OTHERS.
+          ENDCASE.   "<fields>-TABNAME
+          if <fld> is assigned.
+            if <fields>-domname = 'ZPLUMRIVER_TIMESTAMP'.
+*------------ provide selected date/time fields in HDI timestamp format
+*------------ CCYY-MM-DD HH:MM:SS
+              clear: gv_hdidate.
+              write: <fld> to gv_hdidate.
+              gv_string = gv_hdidate.
+            else.
+              gv_string = <fld>.
+            endif.
+**--------- replace double (") with single (') quotes.
+            perform find_and_replace using '"'         "one double (")
+                                           ''''        "one single (')
+                                  changing gv_string.
+            if sy-tabix = 1.
+*------------ first field
+              concatenate '"'
+                          gv_string
+                          '"'
+                      into gv_line.
+            else.
+*------------ subsequent fields
+              concatenate gv_line
+                          ',"'
+                          gv_string
+                          '"'
+                      into gv_line.
+            endif.   "sy-tabix = 1
+          endif.    "<fld> is assigned
+        endloop.   "at gt_fields assigning <fields>
+*------ transfer data record to file
+        transfer gv_line to gv_ifile.
+      endselect.   "from (gs_tables-tabname)... into <wa>
+*---- close dataset and transfer file
+      if gx_open = 'X'.
+        close dataset gv_ifile.
+        if sy-subrc = 0.
+          IF p_dsktop = 'X'   AND
+             sy-batch is initial.
+*---------- target is desktop (running in foreground)
+            clear:  gv_tfile.
+            if not p_stdnam is initial.
+              select single filename
+                       from ZTXX_PR_FILEXFER into GV_stdfile
+                       where tabname = gs_tables-tabname.
+              if sy-subrc = 0.
+*------------ assign std filename to target filename field
+                concatenate  p_tpath
+                             GV_stdfile
+                      into gv_tfile.
+              else.
+*------------ use default filename
+                concatenate  p_tpath
+                             gs_tables-tabname
+                             '_'
+                             sy-datum
+                             sy-uzeit
+                             '.csv'
+                        into gv_tfile.
+              endif.   "sy-subrc = 0 [ON select single filename...]
+            else.
+*---------- use default filename
+              concatenate  p_tpath
+                           gs_tables-tabname
+                           '_'
+                           sy-datum
+                           sy-uzeit
+                           '.csv'
+                      into gv_tfile.
+            endif.   "not p_stdnam is initial
+*---------- send file to desktop
+            perform transfer_file_to_desktop using gv_ifile
+                                                   gv_tfile.
+          endif.   "p_dsktop = 'X' and sy-batch is initial
+        endif.   "sy-subrc = 0 [on close dataset gv_ifile]
+      endif.    "gx_open = 'X'
+    endloop.   "at gt_tables into gs_tables
+  endif.    "sy-subrc = 0 [on retrieving table names]
+
+* CREATE DONE file
+  if not p_DONE is initial.
+*-- first, intermediate file (and path) and open dataset
+    if p_dsktop = 'X'.
+*---- end target is desktop
+      concatenate p_ipath            "intermediate path
+                 'Dummy.csv'         "filename
+              into gv_ifile.
+    else.
+*---- end target is application server, so ipath is tpath
+      concatenate p_tpath            "intermediate path
+                  p_FILDON           "filename
+              into gv_ifile.
+    endif.   "p_dsktop = 'X'
+    open dataset gv_ifile for output
+                          in text mode
+                          encoding DEFAULT.
+    if sy-subrc = 0.
+      gx_open = 'X'.
+    else.
+      message i804(/SAPDMC/LSMW) with gv_ifile.
+      exit.         "leave processing
+    endif.
+*-- write done to file and close
+    transfer 'done' to gv_ifile.
+    if gx_open = 'X'.
+      close dataset gv_ifile.
+      if sy-subrc = 0.
+        if p_dsktop = 'X'   AND
+           sy-batch is initial.
+*-------- Send Done file to Desktop...
+*-------- create target file
+          concatenate  p_tpath
+                       p_FILDON
+                into gv_tfile.
+*-------- send file to desktop
+          perform transfer_file_to_desktop using gv_ifile
+                                                 gv_tfile.
+        endif.   "p_dsktop = 'X' and sy-batch is initial
+      endif.   "sy-subrc = 0  [ON CLOSE DATASET...]
+    endif.   "gx_open = 'X'
+  endif.   "not p_DONE is initial
+
+
+************************************************************************
+*********************   END-OF-SELECTION   *****************************
+************************************************************************
+END-OF-SELECTION.
+  message i007(ZPLUMRIVER).
+
+
+************************************************************************
+***********************   SUBROUTINES   ********************************
+************************************************************************
+*&---------------------------------------------------------------------*
+*&      Form  find_and_replace
+*&---------------------------------------------------------------------*
+FORM find_and_replace USING    us_find
+                               us_replace
+                      CHANGING ch_text.
+* Description:  find text and replace.  Caution! trailing spaces
+*               in find string are ignored.
+
+* Local declarations
+  data: lv_len type sy-fdpos,
+        lv_findlen type sy-fdpos,
+        lv_string type string,
+        lv_string2 type string.
+
+* Begin processing
+  search ch_text for us_find.
+  if sy-subrc = 0.
+    clear: lv_string,
+           lv_string2.
+    lv_string = ch_text.
+*    describe field us_find length lv_findlen.
+    lv_findlen = strlen( us_find ).
+    do.
+      search lv_string for us_find.
+      if sy-subrc = 0.
+        lv_len = sy-fdpos + lv_findlen.
+        concatenate lv_string2
+                    lv_string(sy-fdpos)
+                    us_replace
+               into lv_string2.
+        shift lv_string left by lv_len places.
+      else.
+        exit.
+      endif.
+    enddo.
+*-- nothing left to replace...build rest of the string
+    concatenate lv_string2
+                lv_string
+           into lv_string2.
+    ch_text = lv_string2.
+  endif.
+
+ENDFORM.                    " find_and_replace
+
+
+*&---------------------------------------------------------------------*
+*&      Form  transfer_file_to_desktop
+*&---------------------------------------------------------------------*
+FORM transfer_file_to_desktop USING    us_source type string
+                                       us_target type string.
+* Description:  transfer source file to target location (desktop).
+*               The source file name does not have to match target
+*               file name.
+
+* local declarations
+  data:  lv_source type SAPB-SAPPFAD,
+         lv_target type SAPB-SAPPFAD.
+
+* begin processing
+  lv_source = us_source.
+  lv_target = us_target.
+  CALL FUNCTION 'ARCHIVFILE_SERVER_TO_CLIENT'
+    EXPORTING
+      path             =  lv_source
+      TARGETPATH       =  lv_target
+    EXCEPTIONS
+      ERROR_FILE       = 1
+      OTHERS           = 2.
+
+  IF sy-subrc <> 0 and sy-batch = space.
+    MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+            WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+
+ENDFORM.                    " transfer_file_to_desktop
+
+
+*&---------------------------------------------------------------------*
+*&      Form  transfer_file_to_appserver
+*&---------------------------------------------------------------------*
+FORM transfer_file_to_appserver USING    us_source type string
+                                         us_target type string.
+* Description:  transfer source file to application server location.
+*               The source file name does not have to match target
+*               file name.
+
+* local declarations
+  data:  lv_source type SAPB-SAPPFAD,
+         lv_target type SAPB-SAPPFAD.
+
+* begin processing
+  lv_source = us_source.
+  lv_target = us_target.
+  CALL FUNCTION 'ARCHIVFILE_SERVER_TO_SERVER'
+    EXPORTING
+      SOURCEPATH       =  lv_source
+      TARGETPATH       =  lv_target
+    EXCEPTIONS
+      ERROR_FILE       = 1
+      OTHERS           = 2.
+
+  IF SY-SUBRC <> 0.
+    MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+            WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+ENDFORM.                    " transfer_file_to_appserver
+
+*Text elements
+*----------------------------------------------------------
+* B04 DONE File options
+* T01 Selection Criteria
+* T02 File paths
+* T03 Additional Criteria
+* T04 Exclude Primary Key fields
+* T05 Target path is the Desktop
+* T06 Use PlumRiver Standard download filename
+* T07 Create a "DONE" file
+
+
+*Selection texts
+*----------------------------------------------------------
+* P_FILDON         Filename
+* P_IPATH         Intermediate Path
+* P_NOKEY         Exclude Primary Key fields
+* P_TPATH         Target Path
+* S_TABLE         SAP table name(s)
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: /SAPDMC/LSMW
+*804   Unable to write to file '&'
+*
+* Message class: ZPLUMRIVER
+*007   Processing Completed.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

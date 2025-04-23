@@ -1,0 +1,149 @@
+***INCLUDE MZXZZPR_KATALOG_MAINTAINO01 .
+*&spwizard: output module for tc 'TC_KATALOG'. do not change this line!
+*&spwizard: copy ddic-table to itab
+module TC_KATALOG_init output.
+* set gui status and titlebar
+  SET PF-STATUS 'GUI_0100'.
+  SET TITLEBAR 'TITLE_0100'.
+
+  clear:  GV_MODE,
+          sy-ucomm.
+  if g_TC_KATALOG_copied is initial.
+*&spwizard: copy ddic-table 'ZTXX_PR_KATALOG'
+*&spwizard: into internal table 'g_TC_KATALOG_itab'
+    refresh: gt_katalog,
+             g_TC_KATALOG_itab.
+    if gv_techsite is initial.
+      gv_techsite = '%'.
+    else.
+      translate gv_techsite using '*%'.
+    endif.
+    select * from ZTXX_PR_KATALOG
+       into corresponding fields
+       of table gt_katalog
+       where techsite like gv_techsite.
+*       of table g_TC_KATALOG_itab.
+    if sy-subrc = 0.
+      sort gt_Katalog by techsite catalogx localeid.
+      loop at gt_katalog assigning <katalog>.
+        move-corresponding <katalog> to g_TC_KATALOG_wa.
+        append g_TC_KATALOG_wa to g_TC_KATALOG_itab.
+      endloop.
+    endif.
+    if GV_TECHSITE co '% '.
+      clear:  gv_techsite.
+    else.
+      translate gv_techsite using '%*'.
+    endif.
+    g_TC_KATALOG_copied = 'X'.
+    refresh control 'TC_KATALOG' from screen '0100'.
+  endif.
+endmodule.
+
+*&spwizard: output module for tc 'TC_KATALOG'. do not change this line!
+*&spwizard: move itab to dynpro
+module TC_KATALOG_move output.
+  move-corresponding g_TC_KATALOG_wa to ZTXX_PR_KATALOG.
+endmodule.
+
+*&spwizard: output module for tc 'TC_KATALOG'. do not change this line!
+*&spwizard: get lines of tablecontrol
+module TC_KATALOG_get_lines output.
+  g_TC_KATALOG_lines = sy-loopc.
+endmodule.
+
+
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0050  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE STATUS_0050 OUTPUT.
+  SET PF-STATUS 'GUI_0050'.
+  SET TITLEBAR 'TITLE_0050'.
+
+ENDMODULE.                 " STATUS_0050  OUTPUT
+
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0200  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE STATUS_0200 OUTPUT.
+* set gui status and titlebar
+  SET PF-STATUS 'GUI_0200'.
+  SET TITLEBAR 'TITLE_0200'.
+
+ENDMODULE.                 " STATUS_0200  OUTPUT
+
+
+*&---------------------------------------------------------------------*
+*&      Module  SET_FIELD_DISPLAY_ATTRIBUTES  OUTPUT
+*&---------------------------------------------------------------------*
+MODULE SET_FIELD_DISPLAY_ATTRIBUTES OUTPUT.
+
+  IF GS_KATALOG-CATALOGTEXT is initial.
+    concatenate  ICON_CREATE_TEXT
+                 'Create Text'(PB1)
+             into PB_CATTEXT separated by space.
+  ELSE.
+    concatenate  ICON_CHANGE_TEXT
+                 'Change Text'(PB2)
+             into PB_CATTEXT separated by space.
+  ENDIF.
+
+  IF GS_KATALOG-TECHSITE is initial   OR
+     GS_KATALOG-CATALOGX is initial   OR
+     GS_KATALOG-LOCALEID IS INITIAL.
+*-- Don't display attribute fields until key fields are filled
+    LOOP AT SCREEN.
+      IF SCREEN-GROUP1 <> 'KEY'.
+        SCREEN-INVISIBLE = '1'.
+        SCREEN-ACTIVE = '0'.
+        modify screen.
+      ENDIF.
+    ENDLOOP.
+  ELSE.
+*-- ALL KEY fields are populated
+    LOOP AT SCREEN.
+      IF GV_MODE+1(1) = 'D'.
+*---- when 'D', key fields are display ONLY.
+        IF SCREEN-GROUP1 = 'KEY'.
+          SCREEN-INPUT = '0'.
+          modify screen.
+        ENDIF.   "SCREEN-GROUP1 <> 'KEY'
+      ELSE.
+*---- Key fields may still be modified
+      ENDIF.   "GV_MODE(2) = 'D'.    "display key fields
+*---- Handling fields by Screen NAME
+      CASE SCREEN-NAME.
+        WHEN 'PB_TEXT_CREATE'.
+          SCREEN-INVISIBLE = '0'.
+          SCREEN-ACTIVE = '1'.
+          modify screen.
+        WHEN 'PB_TEXT_CHANGE'.
+          SCREEN-INVISIBLE = '1'.
+          SCREEN-ACTIVE = '0'.
+          modify screen.
+        WHEN OTHERS.
+      ENDCASE.   "SCREEN-NAME.
+    ENDLOOP.  "AT SCREEN
+    IF GS_KATALOG-CATALOGTEXT is initial.
+*---- NEED to display CREATE Button for text and deactivate CHANGE
+    ENDIF.   "GS_KATALOG-CATALOGTEXT is initial
+  ENDIF.   "GS_KATALOG-TECHSITE is initial   OR
+*{   INSERT         DV2K907927                                        1
+  if GS_KATALOG-LOCALEID is INITIAL.
+    SELECT LOCALEID from ZTXX_PR_LOCALEID INTO GS_KATALOG-LOCALEID UP TO 1 ROWS where spras eq 'E'.
+    ENDSELECT.
+    if sy-subrc ne 0.
+      GS_KATALOG-LOCALEID = '1033'.
+    endif.
+  endif.
+
+*}   INSERT
+
+ENDMODULE.                 " SET_FIELD_DISPLAY_ATTRIBUTES  OUTPUT
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

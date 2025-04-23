@@ -1,0 +1,102 @@
+FUNCTION zpr_rfc_order_getlist.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(WEBSITE) TYPE  ZPLUMRIVER_WEBSITE_TECHNICAL OPTIONAL
+*"     VALUE(SOLD_TO) TYPE  KUNNR OPTIONAL
+*"     VALUE(FROM_DATE) TYPE  DATUM OPTIONAL
+*"     VALUE(TO_DATE) TYPE  DATUM OPTIONAL
+*"     VALUE(FROM_ORDER) TYPE  VBELN OPTIONAL
+*"     VALUE(TO_ORDER) TYPE  VBELN OPTIONAL
+*"     VALUE(SHIP_TO) TYPE  KUNNR OPTIONAL
+*"     VALUE(FROM_WEB_ORDER) TYPE  IHREZ OPTIONAL
+*"     VALUE(TO_WEB_ORDER) TYPE  IHREZ OPTIONAL
+*"     VALUE(CUST_PO) TYPE  BSTKD OPTIONAL
+*"     VALUE(FROM_SHIP_DATE) TYPE  DATUM OPTIONAL
+*"     VALUE(TO_SHIP_DATE) TYPE  DATUM OPTIONAL
+*"     VALUE(STYLE) TYPE  MATNR OPTIONAL
+*"     VALUE(OPEN_ORDERS) TYPE  FLAG OPTIONAL
+*"     VALUE(IDOC_SEARCH) TYPE  FLAG OPTIONAL
+*"     VALUE(TEST) TYPE  FLAG OPTIONAL
+*"  EXPORTING
+*"     VALUE(ROWCOUNT) TYPE  I
+*"  TABLES
+*"      ORD_HDR STRUCTURE  ZSXX_PR_ORDERHEADER OPTIONAL
+*"      SALES_ORG_IN STRUCTURE  ZSPR_VKORG OPTIONAL
+*"      DIST_CHANNEL_IN STRUCTURE  ZSPR_VTWEG OPTIONAL
+*"      DIVISION_IN STRUCTURE  ZSPR_SPART OPTIONAL
+*"      ORDER_TYPE_IN STRUCTURE  ZSPR_AUART OPTIONAL
+*"----------------------------------------------------------------------
+*FOR TESTING
+  DATA: l_uzeit TYPE uzeit.
+  l_uzeit = sy-uzeit + 120.
+  IF test = 'X'.
+    DO.
+      IF test = ' '.
+        EXIT.
+      ENDIF.
+      IF sy-uzeit > l_uzeit.
+        EXIT.
+      ENDIF.
+    ENDDO.
+  ENDIF.
+**************
+  DATA: r_variant  TYPE RANGE OF variant,
+        rl_variant LIKE LINE OF r_variant.
+
+  PERFORM clear_global_data.
+
+  IF open_orders <> ' ' AND
+     open_orders <> 'C' AND
+     open_orders <> 'O'.
+    EXIT.
+  ENDIF.
+
+  PERFORM get_website_variants TABLES r_variant
+*                                       sales_org_in
+                                 USING 'ZPR_RFC_ORDER_HIST_VARIANT'
+                                       website.
+
+  CLEAR rl_variant.
+  READ TABLE r_variant INTO rl_variant INDEX 1.
+
+  PERFORM get_variant_values USING rl_variant-low
+                                   'ZPR_RFC_ORDER_HIST_VARIANT'.
+
+  PERFORM get_sales_orders TABLES sales_org_in
+                                  dist_channel_in
+                                  division_in
+                                  order_type_in
+                           USING  sold_to
+                                  from_date
+                                  to_date
+                                  from_order
+                                  to_order
+                                  open_orders
+                                  idoc_search
+                                  from_web_order
+                                  to_web_order
+                                  cust_po
+                                  style
+                                  ship_to
+                                  from_ship_date
+                                  to_ship_date.
+
+  IF gt_order[] IS NOT INITIAL.
+    PERFORM load_ord_header TABLES gt_order
+                                   gt_open_qty
+*                                   gt_lvbmtv
+                                   ord_hdr
+                            USING  website.
+
+  ENDIF.
+
+  PERFORM update_order_status TABLES ord_hdr.
+
+
+  DESCRIBE TABLE ord_hdr LINES rowcount.
+
+ENDFUNCTION.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

@@ -1,0 +1,59 @@
+*&---------------------------------------------------------------------*
+*& Module pool       SAPMZXPR_KODE_MAINTAIN                            *
+*&                                                                     *
+*&---------------------------------------------------------------------*
+*&                                                                     *
+*&                                                                     *
+*&---------------------------------------------------------------------*
+
+
+
+INCLUDE mzxpr_kode_maintaintop.
+
+* INCLUDE MZXPR_KODE_MAINTAINO01                  .                    *
+* INCLUDE MZXPR_KODE_MAINTAINI01                  .                    *
+* INCLUDE MZXPR_KODE_MAINTAINF01                  .                    *
+
+* Includes inserted by Screen Painter Wizard. DO NOT CHANGE THIS LINE!
+INCLUDE mzxpr_kode_maintaino01.
+INCLUDE mzxpr_kode_maintaini01.
+INCLUDE mzxpr_kode_maintainf01.
+
+*GUI Texts
+*----------------------------------------------------------
+* TITLE_0050 --> CODE:  List Restriction Criteria
+* TITLE_0100 --> CODE: Overview
+* TITLE_0200 --> CODE: Maintain Individual Details
+
+*Text elements
+*----------------------------------------------------------
+* B01 Yes
+* B02 No
+* PB1 Create Text
+* PB2 Change Text
+* Q01 Data will be lost. Proceed?
+* Q02 Record will be deleted. Proceed?
+* T01 Confirm possible dataloss
+* T02 Confirm Record Deletion
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: L1
+*256   No changes made; therefore saving not required
+*
+* Message class: OO
+*370   Error inserting or changing. No changes made.
+*
+* Message class: ZPLUMRIVER
+*011   Technical site &1 is not a valid entry.
+*102   Deletion of database record failed.  Please restart and confirm.
+*103   Local entry was not deleted from &1.  Please inform system administrator.
+*200   Please first select a table control line.
+*201   Not currently supported.  Please use COPY or CREATE functions.
+*203   A record with this table key already exists (table:  &1).
+*300   Please maintain &1 before leaving transaction.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

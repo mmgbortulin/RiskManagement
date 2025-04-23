@@ -1,0 +1,246 @@
+*&---------------------------------------------------------------------*
+*& Report  ZPR_GET_ORDER_HEADER_STATUS
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+REPORT zpr_get_order_header_status.
+
+TABLES: vbak.
+
+SELECT-OPTIONS: s_vbeln FOR vbak-vbeln,
+                s_auart FOR vbak-auart,
+                s_vbtyp FOR vbak-vbtyp,
+                s_vkorg FOR vbak-vkorg,
+                s_vtweg FOR vbak-vtweg,
+                s_spart FOR vbak-spart,
+                s_kunnr FOR vbak-kunnr,
+                s_audat FOR vbak-audat,
+                s_erdat FOR vbak-erdat,
+                s_aedat FOR vbak-aedat,
+                s_vdatu FOR vbak-vdatu.
+
+PARAMETERS: p_init AS CHECKBOX.
+
+DATA: lt_ord_hdr         TYPE TABLE OF zsxx_pr_orderheader,
+      lt_ord_hdr_lines   TYPE TABLE OF zsxx_pr_orderline,
+      lt_ztxx_pr_ordstat TYPE HASHED TABLE OF ztxx_pr_ordstat
+                         WITH UNIQUE KEY vbeln,
+      ls_ztxx_pr_ordstat TYPE ztxx_pr_ordstat,
+      ls_order           TYPE ztxx_pr_ordstat,
+      lt_open            TYPE ztxx_pr_ordstat,
+      lt_complete        TYPE ztxx_pr_ordstat,
+      lt_order           TYPE TABLE OF ztxx_pr_ordstat.
+
+DATA: l_count     TYPE i,
+      l_open      TYPE i,
+      l_complete  TYPE i,
+      l_partial   TYPE i,
+      l_cancelled TYPE i,
+      l_rowcount  TYPE i.
+
+DATA: gs_order_schedules_out  TYPE /afs/bapisdschd1,
+      gs_order_itemstatus_out TYPE /afs/bapisditst,
+      gs_order_schdstatus_out TYPE /afs/bapisdschdst,
+      gt_delstatus            TYPE TABLE OF vbup,
+      gt_j_3abdbs             TYPE TABLE OF j_3abdbs.
+
+CONSTANTS: c_open      TYPE zplumriver_orderstatus VALUE 'OPEN',
+           c_partial   TYPE zplumriver_orderstatus VALUE 'PARTIAL',
+           c_complete  TYPE zplumriver_orderstatus VALUE 'COMPLETE',
+           c_cancelled TYPE zplumriver_orderstatus VALUE 'CANCELLED'.
+
+START-OF-SELECTION.
+
+  IF p_init = 'X'.
+    PERFORM initial_load.
+    STOP.
+  ENDIF.
+
+  SELECT        * FROM  ztxx_pr_ordstat INTO TABLE lt_ztxx_pr_ordstat.
+*         WHERE  order_status  = 'OPEN'
+*            OR  order_status  = 'PARTIAL'.
+
+*GET ORDERS WITH OPEN STATUS
+  IF lt_ztxx_pr_ordstat IS NOT INITIAL.
+    SELECT vbeln FROM vbak INTO TABLE @DATA(lt_vbak)
+      FOR ALL ENTRIES IN @lt_ztxx_pr_ordstat
+       WHERE vbeln =  @lt_ztxx_pr_ordstat-vbeln.
+*         AND auart IN @s_auart
+*         AND vbtyp IN @s_vbtyp
+*         AND vkorg IN @s_vkorg
+*         AND vtweg IN @s_vtweg
+*         AND spart IN @s_spart
+*         AND kunnr IN @s_kunnr
+*         AND audat IN @s_audat
+*         AND erdat IN @s_erdat
+*         AND aedat IN @s_aedat
+*         AND vdatu IN @s_vdatu.
+
+*    FREE lt_ztxx_pr_ordstat.
+  ENDIF.
+
+*GET NEW ORDERS
+  SELECT vbeln FROM vbak APPENDING TABLE @lt_vbak
+  WHERE  vbeln IN @s_vbeln
+     AND auart IN @s_auart
+     AND vbtyp IN @s_vbtyp
+     AND vkorg IN @s_vkorg
+     AND vtweg IN @s_vtweg
+     AND spart IN @s_spart
+     AND kunnr IN @s_kunnr
+     AND audat IN @s_audat
+     AND erdat IN @s_erdat
+     AND aedat IN @s_aedat
+     AND vdatu IN @s_vdatu.
+
+  LOOP AT lt_vbak ASSIGNING FIELD-SYMBOL(<ls_vbak>).
+    CLEAR ls_ztxx_pr_ordstat.
+    READ TABLE lt_ztxx_pr_ordstat INTO ls_ztxx_pr_ordstat WITH TABLE KEY vbeln = <ls_vbak>-vbeln.
+    IF ls_ztxx_pr_ordstat-order_status = c_complete.
+      DELETE lt_vbak.
+    ENDIF.
+  ENDLOOP.
+
+  IF lt_vbak IS NOT INITIAL.
+    SELECT        * FROM  vbfa INTO TABLE @DATA(lt_vbfa)
+           FOR ALL ENTRIES IN @lt_vbak
+           WHERE  vbelv  = @lt_vbak-vbeln.
+
+    SELECT        * FROM  vbep INTO TABLE @DATA(lt_vbep)
+           FOR ALL ENTRIES IN @lt_vbak
+           WHERE  vbeln  = @lt_vbak-vbeln.
+
+    SELECT        * FROM  vbup INTO TABLE @DATA(lt_vbup)
+           FOR ALL ENTRIES IN @lt_vbak
+           WHERE  vbeln  = @lt_vbak-vbeln.
+
+    PERFORM get_delivery_status IN PROGRAM saplzpr_rfc_get_order TABLES lt_vbup
+                                                                        lt_vbfa
+                                                                        gt_delstatus.
+  ENDIF.
+
+  DATA: ls_ord_hdr_lines TYPE zsxx_pr_orderline,
+        ls_order_items   TYPE /afs/bapisditem,
+        ls_order_header  TYPE /afs/bapisdhd1,
+        l_invoiced       TYPE menge_d,
+        l_open_qty       TYPE menge_d,
+        l_bmeng          TYPE menge_d.
+
+  LOOP AT lt_vbak ASSIGNING FIELD-SYMBOL(<vbak>).
+    CLEAR: lt_ord_hdr,
+           lt_ord_hdr_lines.
+
+    PERFORM get_quantities IN PROGRAM saplzpr_rfc_get_order TABLES   lt_vbep
+                                                                     lt_vbfa
+                                                            USING    <vbak>-vbeln
+                                                                     ls_order_header
+                                                                     ls_order_items
+                                                            CHANGING ls_ord_hdr_lines
+                                                                     l_invoiced
+                                                                     l_open_qty
+                                                                     l_bmeng
+                                                                     ls_ord_hdr_lines-status.
+
+
+
+
+
+
+    LOOP AT lt_ord_hdr_lines ASSIGNING FIELD-SYMBOL(<ord_lines>).
+      CASE <ord_lines>-status.
+        WHEN 'OPEN'.
+          ADD 1 TO l_open.
+        WHEN 'COMPLETE'.
+          ADD 1 TO l_complete.
+        WHEN 'CANCELLED'.
+          ADD 1 TO l_cancelled.
+        WHEN 'PARTIAL'.
+          ADD 1 TO l_partial.
+      ENDCASE.
+    ENDLOOP.
+
+    l_rowcount = lines( lt_ord_hdr_lines ).
+    CASE l_rowcount.
+      WHEN l_open.
+        ls_ztxx_pr_ordstat = c_open.
+      WHEN l_complete.
+        ls_ztxx_pr_ordstat = c_complete.
+      WHEN l_cancelled.
+        ls_ztxx_pr_ordstat = c_complete.
+      WHEN OTHERS.
+        ls_ztxx_pr_ordstat = c_partial.
+    ENDCASE.
+
+    CLEAR ls_ztxx_pr_ordstat.
+    READ TABLE lt_ztxx_pr_ordstat INTO ls_ztxx_pr_ordstat WITH TABLE KEY vbeln = <vbak>-vbeln.
+    IF ls_ztxx_pr_ordstat-order_status <> ls_order-order_status.
+      ls_order-vbeln = <vbak>-vbeln.
+      APPEND ls_order TO lt_order.
+    ENDIF.
+
+  ENDLOOP.
+
+  IF lt_order[] IS NOT INITIAL.
+    MODIFY ztxx_pr_ordstat FROM TABLE lt_order.
+  ENDIF.
+  IF sy-subrc = 0.
+    WRITE: /1 'RECORDS UPDATED', sy-dbcnt.
+  ENDIF.
+
+
+
+*&---------------------------------------------------------------------*
+*&      Form  INITIAL_LOAD
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM initial_load .
+
+  DELETE FROM ztxx_pr_ordstat.
+
+  SELECT orderno,
+         orderstatus
+         FROM ztxx_pr_orderhdr
+         INTO TABLE @DATA(lt_ztxx_pr_orderhdr).
+
+  LOOP AT lt_ztxx_pr_orderhdr ASSIGNING FIELD-SYMBOL(<order>).
+    ls_order-vbeln = |{ <order>-orderno ALPHA = IN }|.
+    ls_order-order_status = <order>-orderstatus.
+    APPEND ls_order TO lt_order.
+  ENDLOOP.
+
+  SORT lt_order BY vbeln.
+  DELETE ADJACENT DUPLICATES FROM lt_order COMPARING vbeln.
+
+  INSERT ztxx_pr_ordstat FROM TABLE lt_order.
+  IF sy-subrc = 0.
+    WRITE: /1 'Table Updated', sy-dbcnt.
+  ELSE.
+    WRITE: /1 'Table Insert Failed'.
+  ENDIF.
+
+ENDFORM.
+
+
+*Selection texts
+*----------------------------------------------------------
+* P_INIT         Initial load table ZTXX_PR_ORD
+* S_AEDAT         Changed on
+* S_AUART         Sales Document Type
+* S_AUDAT         Document Date
+* S_ERDAT         Created on
+* S_KUNNR         Sold-to party
+* S_SPART         Division
+* S_VBELN         Sales Document
+* S_VBTYP         SD document categ.
+* S_VDATU         Requested deliv.date
+* S_VKORG         Sales Organization
+* S_VTWEG         Distribution Channel
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

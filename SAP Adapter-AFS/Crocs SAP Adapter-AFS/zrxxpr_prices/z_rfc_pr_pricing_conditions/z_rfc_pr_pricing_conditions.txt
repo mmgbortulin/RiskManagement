@@ -1,0 +1,331 @@
+FUNCTION z_rfc_pr_pricing_conditions.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(COND_USAGE) TYPE  KVEWE DEFAULT 'A'
+*"     VALUE(APPLICATIO) TYPE  KAPPL DEFAULT 'V'
+*"     VALUE(COND_TYPE) TYPE  CHAR4 DEFAULT 'XPLT'
+*"     VALUE(TABLE_NO) TYPE  KOTABNR OPTIONAL
+*"     VALUE(VALID_FROM) TYPE  KODATAB OPTIONAL
+*"     VALUE(SALES_ORG) TYPE  VKORG OPTIONAL
+*"     VALUE(DISTR_CHAN) TYPE  VTWEG OPTIONAL
+*"     VALUE(SALES_DOC_TYPE) TYPE  AUART OPTIONAL
+*"     VALUE(MATERIAL) TYPE  MATNR OPTIONAL
+*"     VALUE(PRICE_LEVEL) TYPE  PLTYP OPTIONAL
+*"  TABLES
+*"      PRICING_CONDITIONS STRUCTURE  ZPR_STR_PRICING_CONDITIONS
+*"       OPTIONAL
+*"----------------------------------------------------------------------
+
+  TYPE-POOLS: rsds.
+
+  TYPES: BEGIN OF t_fnames,
+           fname   TYPE sychar30,
+           value   TYPE char30,
+           option  TYPE char2,
+         END   OF t_fnames,
+
+         BEGIN OF t_konp_sel,
+           knumh   TYPE knumh,
+         END   OF t_konp_sel.
+
+  DATA: lit_out_str  TYPE TABLE OF dfies,
+        lwa_out_str  TYPE dfies,
+        lit_682i     TYPE TABLE OF t682i,
+        lwa_682i     TYPE t682i,
+        lv_tabname   TYPE sychar30,
+        lv_dref      TYPE REF TO data,
+        lit_info     TYPE TABLE OF fieldinfo,
+        lwa_info     TYPE fieldinfo,
+        lit_fnames   TYPE TABLE OF t_fnames,
+        lwa_fnames   TYPE t_fnames,
+        lit_frange   TYPE rsds_frange_t,
+        lwa_frange   TYPE rsds_frange,
+        lwa_selopt   TYPE rsdsselopt,
+        lwa_trange   TYPE rsds_range,
+        lit_trange   TYPE rsds_trange,
+        lit_where    TYPE rsds_twhere,
+        lwa_where    TYPE rsds_where,
+        lv_knumh_idx TYPE syindex,
+        lv_index     TYPE syindex,
+        lit_konp_sel TYPE TABLE OF t_konp_sel,
+        lit_konp     TYPE TABLE OF konp,
+*{   INSERT         DV2K907927                                        1
+        lwa_t685     TYPE t685,
+*}   INSERT
+        lwa_konp     TYPE konp,
+        lwa_output   TYPE zpr_str_pricing_conditions.
+
+  FIELD-SYMBOLS:  <table>  TYPE ANY TABLE,
+                  <wa>     TYPE ANY,
+                  <comp>   TYPE ANY,
+                  <field>  TYPE ANY.
+
+  CONSTANTS: lc_a     TYPE char1    VALUE 'A',
+             lc_knumh TYPE sychar30 VALUE 'KNUMH'.
+
+  DEFINE m_init_fnames.
+    if not &2 is initial.
+      lwa_fnames-fname  = &1.
+      lwa_fnames-value  = &2.
+      lwa_fnames-option = &3.
+      append lwa_fnames to lit_fnames.
+    endif.
+  END-OF-DEFINITION.
+
+* Housekeeping
+
+
+* Get the structure for the PRICING_CONDITION output table
+  CALL FUNCTION 'DDIF_FIELDINFO_GET'
+    EXPORTING
+      tabname        = 'ZPR_STR_PRICING_CONDITIONS'
+      langu          = sy-langu
+    TABLES
+      dfies_tab      = lit_out_str
+    EXCEPTIONS
+      not_found      = 1
+      internal_error = 2
+      OTHERS         = 3.
+
+  IF sy-subrc NE 0.
+*   ??
+  ENDIF.
+*{   INSERT         DV2K907927                                        2
+  SELECT SINGLE * FROM t685 INTO lwa_t685 WHERE kvewe = cond_usage
+                                            AND kappl = applicatio
+                                            AND kschl = cond_type.
+
+*}   INSERT
+
+* T682I access
+  CALL FUNCTION 'SD_T682I_SINGLE_READ'
+    EXPORTING
+      kvewe_i      = cond_usage
+      kappl_i      = applicatio
+*{   REPLACE        DV2K907927                                        3
+*\      kozgf_i      = cond_type
+      kozgf_i      = lwa_t685-kozgf
+*}   REPLACE
+      count_i      = '50'
+    TABLES
+      t682i_tab_io = lit_682i.
+
+  LOOP AT lit_682i INTO lwa_682i.
+
+    IF NOT table_no IS INITIAL.
+      CHECK lwa_682i-kotabnr EQ table_no.
+    ENDIF.
+
+*   Condition table name
+    CONCATENATE lc_a lwa_682i-kotabnr INTO lv_tabname.
+
+*   Create reference table
+    CREATE DATA lv_dref TYPE STANDARD TABLE OF (lv_tabname).
+
+*   Assign refernce table to field-symbol
+    ASSIGN lv_dref->* TO <table>.
+
+*   Got any of the parameters?
+    CLEAR: lit_info[], lit_fnames[], lwa_where,
+           lit_frange[], lit_trange[].
+
+*   Initialize fields for selection
+    m_init_fnames: 'DATBI'    valid_from      'GE',
+                   'VKORG'    sales_org       'EQ',
+                   'VTWEG'    distr_chan      'EQ',
+                   'MATNR'    material        'EQ',
+                   'AUART_SD' sales_doc_type  'EQ',
+                   'PLTYP'    price_level     'EQ'.
+
+*   Fields for dynamic selection
+    CALL FUNCTION 'DDIC_DATA_DESCRIPTION_SCAN'
+      EXPORTING
+        i_structure      = lv_tabname
+      TABLES
+        t_fieldinfo      = lit_info
+      EXCEPTIONS
+        table_not_exists = 1
+        OTHERS           = 2.
+    IF sy-subrc EQ 0.
+      LOOP AT lit_info INTO lwa_info.
+        READ TABLE lit_fnames INTO lwa_fnames
+            WITH KEY fname = lwa_info-fieldname.
+        IF sy-subrc EQ 0.
+
+          lwa_frange-fieldname = lwa_info-fieldname.
+          lwa_selopt-sign      = 'I'.
+          lwa_selopt-option    = lwa_fnames-option.
+          lwa_selopt-low       = lwa_fnames-value.
+          APPEND lwa_selopt TO lwa_frange-selopt_t.
+          APPEND lwa_frange TO lit_frange.
+
+          CLEAR: lwa_selopt, lwa_frange.
+
+        ENDIF.
+      ENDLOOP.
+    ELSE.
+      CONTINUE.
+    ENDIF.
+
+*   Build dynamic selection
+    IF NOT lit_frange[] IS INITIAL.
+      lwa_trange-tablename = lv_tabname.
+      lwa_trange-frange_t  = lit_frange.
+      APPEND lwa_trange TO lit_trange.
+      CALL FUNCTION 'FREE_SELECTIONS_RANGE_2_WHERE'
+        EXPORTING
+          field_ranges  = lit_trange
+        IMPORTING
+          where_clauses = lit_where.
+      READ TABLE lit_where INTO lwa_where INDEX 1.
+    ENDIF.
+
+    IF NOT lit_fnames[]          IS INITIAL AND
+           lwa_where-where_tab[] IS INITIAL.
+*     What if some parameters the user entered are
+*     not even in the current condition table?
+*     Should I bypass this table?
+      CONTINUE.
+    ENDIF.
+
+*   Get conditions from table Axxx
+    SELECT * INTO TABLE <table>
+        FROM (lv_tabname)
+        WHERE kappl EQ lwa_682i-kappl AND
+*{   REPLACE        DV2K907927                                        4
+*\              kschl EQ lwa_682i-kozgf AND
+              kschl EQ cond_type AND
+*}   REPLACE
+              (lwa_where-where_tab).
+
+    IF sy-subrc EQ 0.
+
+*     Get index of component KNUMH
+      READ TABLE lit_info WITH KEY fieldname = lc_knumh
+          TRANSPORTING NO FIELDS.
+      IF sy-subrc EQ 0. "It will always be!
+        lv_knumh_idx = sy-tabix.
+      ENDIF.
+
+*     Create access table for KONP
+      LOOP AT <table> ASSIGNING <wa>.
+        ASSIGN COMPONENT lv_knumh_idx
+            OF STRUCTURE <wa> TO <comp>.
+        IF sy-subrc EQ 0.
+          APPEND <comp> TO lit_konp_sel.
+        ENDIF.
+      ENDLOOP.
+
+      SORT lit_konp_sel BY knumh.
+
+*     KONP
+      SELECT * INTO TABLE lit_konp
+          FROM konp
+          FOR ALL ENTRIES IN lit_konp_sel
+          WHERE knumh EQ lit_konp_sel-knumh AND
+                kappl EQ applicatio         AND
+                kschl EQ cond_type          AND
+                loevm_ko = space.                "NOT DELETED
+
+      FREE lit_konp_sel[].
+
+      IF NOT lit_konp[] IS INITIAL.
+
+        SORT lit_konp BY knumh kopos.
+
+*       Create entries for the output table
+        LOOP AT <table> ASSIGNING <wa>.
+
+          ASSIGN COMPONENT lv_knumh_idx
+              OF STRUCTURE <wa> TO <comp>.
+          IF sy-subrc EQ 0.
+
+            READ TABLE lit_konp INTO lwa_konp
+                WITH KEY knumh = <comp>
+                BINARY SEARCH.
+
+            IF sy-subrc EQ 0.
+
+*             Fields from T682I
+              lwa_output-kappl   = lwa_682i-kappl.
+*{   REPLACE        DV2K907927                                        5
+*\              lwa_output-kschl   = lwa_682i-kozgf.
+              lwa_output-kschl   = cond_type.
+*}   REPLACE
+              lwa_output-kolnr   = lwa_682i-kolnr.
+              lwa_output-kotabnr = lwa_682i-kotabnr.
+
+*             Fields from KONP
+              lwa_output-knumh   = lwa_konp-knumh.
+              lwa_output-kbetr   = lwa_konp-kbetr.
+              lwa_output-konwa   = lwa_konp-konwa.
+              lwa_output-kpein   = lwa_konp-kpein.
+              lwa_output-kmein   = lwa_konp-kmein.
+
+*             Fields from dynamic table
+              LOOP AT lit_info INTO lwa_info.
+
+                lv_index = sy-tabix.
+
+*               Check if field in <table> exist in the output table
+                READ TABLE lit_out_str INTO lwa_out_str
+                    WITH KEY fieldname = lwa_info-fieldname.
+                IF sy-subrc EQ 0.
+
+*                 Assign field of <table>
+                  ASSIGN COMPONENT lv_index
+                      OF STRUCTURE <wa> TO <comp>.
+
+*                 Assign field of the output table
+                  ASSIGN COMPONENT lwa_out_str-position
+                      OF STRUCTURE lwa_output TO <field>.
+
+                  IF sy-subrc EQ 0.
+                    <field> = <comp>.
+                  ENDIF.
+                ENDIF.
+              ENDLOOP.
+
+              CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+                EXPORTING
+                  input  = lwa_output-kunnr
+                IMPORTING
+                  output = lwa_output-kunnr.
+
+*{   REPLACE        DV2K909874                                        6
+*\              CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+              CALL FUNCTION 'CONVERSION_EXIT_MATN1_OUTPUT'
+*}   REPLACE
+                EXPORTING
+                  input  = lwa_output-matnr
+                IMPORTING
+                  output = lwa_output-matnr.
+
+              APPEND lwa_output TO pricing_conditions.
+              CLEAR  lwa_output.
+
+            ENDIF.
+          ENDIF.
+        ENDLOOP.
+        FREE lit_konp[].
+      ENDIF.
+      FREE <table>[].
+    ENDIF.
+  ENDLOOP.
+
+  FREE lit_out_str[].
+
+ENDFUNCTION.
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: WV
+*097   Plant &1 does not exist
+*604   Function module &1 does not exist
+*801   Select lines
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

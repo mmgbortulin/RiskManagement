@@ -1,0 +1,164 @@
+FUNCTION zpr_rfc_invoice_get_detail.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(WEBSITE) TYPE  ZPLUMRIVER_WEBSITE_TECHNICAL OPTIONAL
+*"     VALUE(VBELN) TYPE  VBELN OPTIONAL
+*"     VALUE(TEST) TYPE  FLAG OPTIONAL
+*"  TABLES
+*"      INV_HDR STRUCTURE  ZSXX_PR_INVOICE OPTIONAL
+*"      INV_LINES STRUCTURE  ZSXX_PR_INVOICELINE OPTIONAL
+*"----------------------------------------------------------------------
+  DATA: l_uzeit TYPE uzeit.
+
+
+  l_uzeit = sy-uzeit + 120.
+  IF test = 'X'.
+    DO.
+      IF test = ' '.
+        EXIT.
+      ENDIF.
+      IF sy-uzeit > l_uzeit.
+        EXIT.
+      ENDIF.
+    ENDDO.
+  ENDIF.
+**************
+  PERFORM initialize_globals.
+
+  g_website = website.
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = vbeln
+    IMPORTING
+      output = gs_vbrk-vbeln.
+
+  CALL FUNCTION 'RV_INVOICE_DOCUMENT_READ'
+    EXPORTING
+*     ACTIVITY             = '  '
+      konv_read            = 'X'
+*     NO_NAST              = ' '
+      vbrk_i               = gs_vbrk
+      i_no_authority_check = 'X'
+*     OIA_UNZIP_FEES       =
+*     I_GV_ERDAT_SEL       =
+    IMPORTING
+      vbrk_e               = gs_vbrk_e
+      vbuk_e               = gs_vbuk_e
+    TABLES
+      xkomv                = gt_xkomv
+      xvbpa                = gt_xvbpa
+      xvbrk                = gt_xvbrk
+      xvbrp                = gt_xvbrp
+      xkomfk               = gt_xkomfk
+      xvbfs                = gt_xvbfs
+      xthead               = gt_xthead
+      xvbss                = gt_xvbss
+* CHANGING
+*     I_DATA_READ_FROM_ARCHIVE       =
+    EXCEPTIONS
+      no_authority         = 1
+      OTHERS               = 2.
+  IF sy-subrc <> 0.
+* Implement suitable error handling here
+  ENDIF.
+
+  IF gt_xvbrk[] IS NOT INITIAL.
+    SELECT  * FROM konv INTO TABLE gt_konv
+              FOR ALL ENTRIES IN gt_xvbrk
+              WHERE knumv = gt_xvbrk-knumv
+                AND kstat = space        "CB: NOT STATISTICAL
+                AND ( kinak = ' ' OR kinak = 'Y' ). "Added by lokesh on 09/13/2016
+    SORT gt_konv BY knumv kposn stunr zaehk.
+
+  ENDIF.
+
+  IF gt_xvbrp[] IS NOT INITIAL.
+    PERFORM get_vbep TABLES gt_vbep
+                            gt_xvbrp.
+
+    PERFORM get_vbak TABLES gt_vbak
+                            gt_xvbrp.
+
+    REFRESH gt_likp.
+    SELECT * FROM likp INTO TABLE gt_likp
+        FOR ALL ENTRIES IN gt_xvbrp
+        WHERE vbeln = gt_xvbrp-vgbel.
+    SORT gt_likp BY vbeln.
+  ENDIF.
+
+
+  ASSIGN gt_likp TO FIELD-SYMBOL(<lt_likp>).
+  PERFORM get_tracking_numbers TABLES  gt_likp
+                                       gt_vekp.
+
+  CONCATENATE sy-datum sy-uzeit INTO gv_dateinserted.
+
+  LOOP AT gt_xvbrk INTO gs_xvbrk.
+
+    LOOP AT gt_xvbrp ASSIGNING <vbrp>.
+      CLEAR:  gs_lineprice.
+*---- Pricing components
+*        CLEAR:  lv_freight,
+*                lv_taxes,
+*                lv_taxable,
+*                lv_other,
+*                lv_discount.
+      gs_lineprice-vbeln = <vbrp>-vbeln.
+      gs_lineprice-posnr = <vbrp>-posnr.
+      gs_lineprice-fkimg = <vbrp>-fkimg.
+      IF NOT <vbrp>-j_3ausize IS INITIAL.
+        gs_lineprice-uecha = <vbrp>-j_3ausize.
+      ELSE.
+        gs_lineprice-uecha = <vbrp>-uecha.
+      ENDIF.   "not <VBRP>-j_3ausize is initial
+      gs_lineprice-j_3afkimg = <vbrp>-j_3afkimg.
+      PERFORM determine_prices_item  USING gs_xvbrk-knumv
+                                            <vbrp>-posnr
+                                   CHANGING gs_lineprice-unitpricewholesl
+                                            gs_lineprice-subtotalwholesal
+                                            gs_lineprice-rebate
+                                            gs_lineprice-discount
+                                            gs_lineprice-taxes
+                                            gs_lineprice-taxable
+                                            gs_lineprice-other
+                                            gs_lineprice-freight.
+      APPEND gs_lineprice TO gt_lineprice.
+    ENDLOOP.   "AT GT_VBRP ASSIGNING <VBRP>
+
+    LOOP AT gt_xvbrp INTO gs_xvbrp WHERE vbeln = gs_xvbrk-vbeln.
+      IF gs_xvbrp-j_3apgnr IS NOT INITIAL.
+        IF gs_xvbrp-j_3afkimg IS INITIAL. "afs ITEM 0 QTY
+          CONTINUE.
+        ENDIF.
+      ELSE.
+        IF gs_xvbrp-fkimg IS INITIAL."STANDARD ITEM QTY
+          CONTINUE.
+        ENDIF.
+      ENDIF.
+      CLEAR gs_vbep.
+      READ TABLE gt_vbep INTO gs_vbep WITH KEY vbeln = gs_xvbrp-aubel
+                                               posnr = gs_xvbrp-aupos
+                                               etenr = gs_xvbrp-j_3avgete BINARY SEARCH.
+      PERFORM load_item.
+
+    ENDLOOP.
+
+    CLEAR gs_likp.
+    LOOP AT gt_likp INTO gs_likp.           "loop at likp becasue there can be more than 1 delivery per invoice.
+      PERFORM load_header .
+    ENDLOOP.
+    IF sy-subrc <> 0.
+      PERFORM load_header .
+    ENDIF.
+
+  ENDLOOP.
+
+  MOVE  gt_zsxx_pr_invoice[] TO inv_hdr[].
+  MOVE  gt_zsxx_pr_invline[] TO inv_lines[].
+
+ENDFUNCTION.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

@@ -1,0 +1,148 @@
+FUNCTION zpr_rfc_order_get_detail.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(WEBSITE) TYPE  ZPLUMRIVER_WEBSITE_TECHNICAL OPTIONAL
+*"     VALUE(ORDERNO) TYPE  VBELN OPTIONAL
+*"     VALUE(TEST) TYPE  FLAG OPTIONAL
+*"  TABLES
+*"      ORD_HDR STRUCTURE  ZSXX_PR_ORDERHEADER OPTIONAL
+*"      ORD_HDR_LINES STRUCTURE  ZSXX_PR_ORDERLINE OPTIONAL
+*"----------------------------------------------------------------------
+*  data: lt_konv      TYPE TABLE OF konv,
+*        ls_konv      TYPE konv,
+*        lt_vbup      TYPE TABLE OF vbup,
+*        lt_vbfa      type TABLE OF vbfa,
+*        lt_vbep      TYPE TABLE OF vbep,
+*        lt_j_3abdbs  TYPE TABLE OF j_3abdbs.
+
+  DATA: lt_return               TYPE TABLE OF bapiret2,
+*        lt_sales_documents       TYPE TABLE OF  sales_key,
+        lt_order_items_out      TYPE TABLE OF  /afs/bapisditem,
+        lt_order_schedules_out  TYPE TABLE OF  /afs/bapisdschd1,
+        lt_order_business_out   TYPE TABLE OF  bapisdbusi,
+        lt_order_address_out    TYPE TABLE OF  bapisdcoad,
+        lt_order_partners_out   TYPE TABLE OF  bapisdpart,
+        lt_order_itemstatus_out TYPE TABLE OF  /afs/bapisditst,
+        lt_order_schdstatus_out TYPE TABLE OF  /afs/bapisdschdst,
+        lt_order_conditions_out TYPE TABLE OF  /afs/bapicond,
+        lt_header_condition_out TYPE TABLE OF  bapicondhd,
+        lt_item_condition_out   TYPE TABLE OF  bapicondit,
+        lt_order_cond_qty_scale TYPE TABLE OF  bapicondqs,
+        lt_order_cond_val_scale TYPE TABLE OF  bapicondvs.
+
+  DATA: ls_order_header_out       TYPE /afs/bapisdhd1,
+        ls_order_headerstatus_out TYPE /afs/bapisdhdst.
+
+  DATA: lt_statusinfo TYPE TABLE OF /afs/bapisdstat.
+********************
+  DATA: l_uzeit TYPE uzeit.
+  l_uzeit = sy-uzeit + 120.
+  IF test = 'X'.
+    DO.
+      IF test = ' '.
+        EXIT.
+      ENDIF.
+      IF sy-uzeit > l_uzeit.
+        EXIT.
+      ENDIF.
+    ENDDO.
+  ENDIF.
+*************
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = orderno
+    IMPORTING
+      output = orderno.
+
+  DATA: l_bapi_view TYPE /afs/bapiorderview.
+  CLEAR l_bapi_view.
+  l_bapi_view-header          = 'X'.
+  l_bapi_view-item            = 'X'.
+  l_bapi_view-sdschedule      = 'X'.
+  l_bapi_view-business        = 'X'.
+  l_bapi_view-partner         = 'X'.
+  l_bapi_view-address         = 'X'.
+  l_bapi_view-status_h        = 'X'.
+  l_bapi_view-status_i        = 'X'.
+  l_bapi_view-sdcond          = 'X'.
+  l_bapi_view-sdcond_add      = 'X'.
+  l_bapi_view-status_sch_line = 'X'.
+
+  CALL FUNCTION '/AFS/BAPI_SALESORD_READ_DATA'
+    EXPORTING
+      salesdocumentin        = orderno
+      i_bapi_view            = l_bapi_view
+*     BAPI_I_MEMORY_READ     =
+    IMPORTING
+      order_header_out       = ls_order_header_out
+      order_headerstatus_out = ls_order_headerstatus_out
+    TABLES
+      return                 = lt_return
+      order_items_out        = lt_order_items_out
+      order_schedules_out    = lt_order_schedules_out
+      order_business_out     = lt_order_business_out
+      order_address_out      = lt_order_address_out
+      order_partners_out     = lt_order_partners_out
+      order_itemstatus_out   = lt_order_itemstatus_out
+      order_schdstatus_out   = lt_order_schdstatus_out
+      order_conditions_out   = lt_order_conditions_out
+      header_condition_out   = lt_header_condition_out
+      item_condition_out     = lt_item_condition_out
+      order_cond_qty_scale   = lt_order_cond_qty_scale
+      order_cond_val_scale   = lt_order_cond_val_scale.
+
+  SORT lt_order_business_out BY  sd_doc itm_number.
+  SORT lt_order_itemstatus_out BY itm_number.
+  SORT lt_order_partners_out BY sd_doc itm_number partn_role.
+
+*  PERFORM get_order_details USING orderno.
+
+  PERFORM get_order_status TABLES lt_statusinfo
+                           USING  orderno.
+
+  PERFORM get_vbfa  TABLES gt_vbfa
+                    USING orderno.
+
+  PERFORM get_vbup TABLES gt_vbfa
+                          gt_vbup.
+
+  PERFORM get_delivery_status TABLES gt_vbup
+                                     gt_vbfa
+                                     gt_delstatus.
+
+  PERFORM get_j_3abdbs TABLES gt_j_3abdbs
+                       USING  orderno.
+
+  PERFORM get_condition_records TABLES gt_konv
+                                USING orderno.
+
+  PERFORM get_vbep TABLES gt_vbep
+                   USING  orderno.
+
+  PERFORM load_items TABLES ord_hdr_lines
+                            lt_order_items_out
+                            lt_order_schedules_out
+                            lt_statusinfo
+                            lt_order_itemstatus_out
+                            lt_order_schdstatus_out
+                            lt_order_business_out
+                            gt_konv
+                            gt_vbep
+                            gt_vbfa
+                      USING ls_order_header_out
+                            orderno
+                            website.
+
+  PERFORM load_order_header TABLES ord_hdr
+                                   ord_hdr_lines
+                                   lt_order_business_out
+                                   lt_order_partners_out
+                            USING ls_order_header_out
+                                  orderno
+                                  website.
+
+ENDFUNCTION.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

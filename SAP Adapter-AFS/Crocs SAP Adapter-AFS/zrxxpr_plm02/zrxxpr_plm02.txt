@@ -1,0 +1,2123 @@
+REPORT zrxxpr_plm02 NO STANDARD PAGE HEADING
+                    MESSAGE-ID zplumriver.
+
+************************************************************************
+* Program     : ZRXXPR_PLM02 - Style Master HDI Extractions            *
+* Programmer  : Steve LeCours (Clientis-S3G)                           *
+* Date        : July 7, 2011                                           *
+************************************************************************
+* DESCRIPTION:  Extract SAP Material Master related information and
+*               populate the associated HDI table.
+*                                                                      *
+*-----------------------------------------------------------------------
+*Modification log:
+* Change #         Date               By whom
+* Description
+*-----------------------------------------------------------------------
+
+* ----------------------------------------------------------------------
+************************************************************************
+************************************************************************
+*************    GLOBAL DECLARATIONS    ********************************
+TYPE-POOLS: rsds.
+
+TABLES:  t005,
+         vbak,
+         knvv,
+         mara,
+         mvke,
+         marc,
+         t683s,
+         mard.
+
+* work area for technical website information
+DATA: BEGIN OF gs_techsite,
+        website    TYPE ztxx_pr_website-website,
+        pr_website TYPE ztxx_pr_website-pr_website,
+        url        TYPE ztxx_pr_website-url,
+      END OF gs_techsite.
+
+* work area for HDI table Primary key
+DATA: gs_tablekey TYPE zsxx_pr_tablekey.
+
+* table update work areas
+DATA: gs_katalog    TYPE ztxx_pr_katalog,      "Catalog Master table
+      gs_department TYPE ztxx_pr_dept,
+      gs_deptstyle  TYPE ztxx_pr_deptstyl,
+      gs_custprice  TYPE ztxx_pr_custpric,
+      gs_catalog    TYPE ztxx_pr_catalog,
+      gs_sku        TYPE ztxx_pr_sku,
+      gs_pricat     TYPE ztxx_pr_pricat,
+      gs_catstyle   TYPE ztxx_pr_catstyle,
+      gs_style      TYPE ztxx_pr_style.
+
+* Catalog (Master table... NOT HDI table)
+DATA: gt_katalog LIKE STANDARD TABLE OF gs_katalog
+                 WITH NON-UNIQUE KEY mandt techsite catalogx
+                                     localeid
+                 INITIAL SIZE 10.
+
+
+* Department
+DATA: gt_department LIKE STANDARD TABLE OF gs_department
+                    WITH NON-UNIQUE KEY mandt techsite vkorg
+                                        vtweg spart seq
+                    INITIAL SIZE 0.
+
+* Department_Style
+DATA: gt_deptstyle LIKE STANDARD TABLE OF gs_deptstyle
+                   WITH NON-UNIQUE KEY mandt techsite vkorg
+                                       vtweg spart seq
+                   INITIAL SIZE 0.
+
+* Customer_Price
+DATA: gt_custprice LIKE STANDARD TABLE OF gs_custprice
+                   WITH NON-UNIQUE KEY mandt techsite vkorg
+                                       vtweg spart seq
+                   INITIAL SIZE 0.
+
+* CATALOG
+DATA: gt_catalog LIKE STANDARD TABLE OF gs_catalog
+                   WITH NON-UNIQUE KEY mandt techsite vkorg
+                                       vtweg spart seq
+                   INITIAL SIZE 0.
+
+* CATALOG_STYLE
+DATA: gt_catstyle LIKE STANDARD TABLE OF gs_catstyle
+                   WITH NON-UNIQUE KEY mandt techsite vkorg
+                                       vtweg spart seq
+                   INITIAL SIZE 0.
+
+* STYLE
+DATA: gt_style LIKE STANDARD TABLE OF gs_style
+               WITH NON-UNIQUE KEY mandt techsite vkorg
+                                   vtweg spart seq
+               INITIAL SIZE 0.
+
+* SKU
+DATA: gt_sku LIKE STANDARD TABLE OF gs_sku
+             WITH NON-UNIQUE KEY mandt techsite vkorg
+                                 vtweg spart seq
+             INITIAL SIZE 0.
+
+* PRICING CATALOG (SKU)
+DATA: gt_pricat LIKE STANDARD TABLE OF gs_pricat
+                WITH NON-UNIQUE KEY mandt techsite vkorg
+                                    vtweg spart seq
+                INITIAL SIZE 0.
+
+* Sales Organization
+DATA: BEGIN OF gs_tvko,
+        vkorg TYPE tvko-vkorg,
+        bukrs TYPE tvko-bukrs,
+        adrnr TYPE tvko-adrnr,
+      END OF gs_tvko.
+
+DATA:  gt_tvko LIKE STANDARD TABLE OF gs_tvko
+               WITH NON-UNIQUE KEY vkorg
+               INITIAL SIZE 5.
+
+* Distribution Channel
+DATA: BEGIN OF gs_tvtw,
+        vtweg TYPE tvtw-vtweg,
+      END OF gs_tvtw.
+
+DATA:  gt_tvtw LIKE STANDARD TABLE OF gs_tvtw
+               WITH NON-UNIQUE KEY vtweg
+               INITIAL SIZE 5.
+
+* Division
+DATA: BEGIN OF gs_tspa,
+        spart TYPE tspa-spart,
+      END OF gs_tspa.
+
+DATA:  gt_tspa LIKE STANDARD TABLE OF gs_tspa
+               WITH NON-UNIQUE KEY spart
+               INITIAL SIZE 5.
+
+* MARA AND MVKE FIELDS (MATERIAL LIST BASIS)
+DATA: BEGIN OF gs_mara,
+        matnr     TYPE mara-matnr,
+        vkorg     TYPE mvke-vkorg,
+        vtweg     TYPE mvke-vtweg,
+        mtart     TYPE mara-mtart,
+        matkl     TYPE mara-matkl,
+        meins     TYPE mara-meins,
+        brgew     TYPE mara-brgew,
+        ntgew     TYPE mara-ntgew,
+        gewei     TYPE mara-gewei,
+        volum     TYPE mara-volum,
+        voleh     TYPE mara-voleh,
+        spart     TYPE mara-spart,
+        kunnr     TYPE mara-kunnr,
+        laeng     TYPE mara-laeng,
+        breit     TYPE mara-breit,
+        hoehe     TYPE mara-hoehe,
+        meabm     TYPE mara-meabm,
+        prdha     TYPE mara-prdha,
+        extwg     TYPE extwg,
+        herkl     TYPE mara-herkl,
+        j_3apgnr  TYPE mara-j_3apgnr,
+        j_3akalsv TYPE mara-j_3akalsv,
+        j_3akalsm TYPE mara-j_3akalsm,
+        j_3agend  TYPE j_3agend,
+        j_3acol   TYPE j_3acol,
+        j_4kcsgr  TYPE mara-j_4kcsgr,
+        j_4kcovsa TYPE mara-j_4kcovsa,
+        vmsta     TYPE mvke-vmsta,
+        vmstd     TYPE mvke-vmstd,
+        vrkme     TYPE mvke-vrkme,
+        prodh     TYPE mvke-prodh,
+        mvgr1     TYPE mvke-mvgr1,
+        mvgr2     TYPE mvke-mvgr2,
+        mvgr3     TYPE mvke-mvgr3,
+        mvgr4     TYPE mvke-mvgr4,
+        mvgr5     TYPE mvke-mvgr5,
+        aumng     TYPE mvke-aumng,   "min. order qty
+        scmng     TYPE mvke-scmng,   "order multiple
+        schme     TYPE mvke-schme,   "unit of order multiple
+      END OF gs_mara.
+
+DATA:  gt_mara LIKE STANDARD TABLE OF gs_mara
+               WITH NON-UNIQUE KEY matnr vkorg vtweg
+               INITIAL SIZE 0.
+TYPES: BEGIN OF t_atnn,
+         j_3abzd TYPE j_3abzd1,
+         atinn   TYPE atinn,
+       END OF t_atnn,
+
+       BEGIN OF t_cawn,
+         atinn TYPE	atinn,
+         atzhl TYPE atzhl,
+         adzhl TYPE adzhl,
+         atwrt TYPE atwrt,
+       END OF t_cawn.
+
+DATA:  gt_mat  LIKE STANDARD TABLE OF gs_mara,
+       gt_gnr  TYPE TABLE OF j_3apghd,
+       gt_cabt TYPE TABLE OF cabnt,
+       gt_cawn TYPE TABLE OF t_cawn,
+       gt_atnn TYPE TABLE OF t_atnn.
+
+DATA:  gs_gnr  TYPE j_3apghd,
+       gs_cabt TYPE cabnt,
+       gs_cawn TYPE t_cawn,
+       gs_atnn TYPE t_atnn.
+
+DATA:  gt_gendt TYPE TABLE OF j_3agendrt,
+       gs_gendt TYPE j_3agendrt.
+
+* collected price data information
+DATA:  BEGIN OF gs_pricedata,
+         matnr         TYPE matnr,
+         size          TYPE j_3asize,
+         kunnr         TYPE kunnr,
+         extwg         TYPE extwg,
+         pricecode(20),
+         sortlevel     TYPE t682i-kolnr,
+         datbi         TYPE datbi,
+         datab         TYPE datab,
+         kotabnr       TYPE t682i-kotabnr,
+         vkorg         TYPE vkorg,
+         vtweg         TYPE vtweg,
+         spart         TYPE spart,
+         land1         TYPE land1,
+         pltyp         TYPE pltyp,
+         knumh         TYPE knumh,
+         kopos         TYPE konp-kopos,
+         kappl         TYPE konp-kappl,
+         kschl         TYPE konp-kschl,
+         krech         TYPE konp-krech,
+         kbetr         TYPE konp-kbetr,
+         konwa         TYPE konp-konwa,
+         kpein         TYPE konp-kpein,
+         kmein         TYPE konp-kmein,
+         kumza         TYPE konp-kumza,
+         kumne         TYPE konp-kumne,
+         meins         TYPE konp-meins,
+         loevm_ko      TYPE konp-loevm_ko,
+       END OF gs_pricedata.
+
+DATA:  gt_pricedata LIKE STANDARD TABLE OF gs_pricedata
+                    WITH NON-UNIQUE KEY matnr size kunnr
+                                        pricecode sortlevel
+                    INITIAL SIZE 0.
+
+DATA:  gt_pricedata2 LIKE STANDARD TABLE OF gs_pricedata
+                     WITH NON-UNIQUE KEY matnr size pricecode
+                                         sortlevel
+                     INITIAL SIZE 0.
+
+DATA: gt_pricedatacpy LIKE STANDARD TABLE OF gs_pricedata
+                      WITH NON-UNIQUE KEY matnr size pricecode
+                                          sortlevel
+                      INITIAL SIZE 0.
+
+* LocaleID to SAP language key translation table
+DATA: BEGIN OF gs_localeid,
+        localeid TYPE ztxx_pr_localeid-localeid,
+        spras    TYPE ztxx_pr_localeid-spras,
+      END OF gs_localeid.
+
+DATA:  gt_localeid LIKE HASHED TABLE OF gs_localeid
+                   WITH UNIQUE KEY localeid
+                   INITIAL SIZE 10.
+
+* Local Fields
+DATA:  gv_vkorg        TYPE vkorg,
+       gv_vtweg        TYPE vtweg,
+       gv_spart        TYPE spart,
+       gv_seq          TYPE num10,
+       gv_date         TYPE sydatum,
+       gv_time         TYPE syuzeit,
+       gv_matnr        TYPE matnr,
+       gv_dateinserted TYPE zplumriver_dateinserted,
+       gv_subrc        TYPE sysubrc,
+       gv_tabix        TYPE sytabix.
+
+DATA:
+   wa_pricedata LIKE LINE OF gt_pricedata.
+
+DATA: it_mlist TYPE TABLE OF zprxx_tmlist,
+      wa_mlist TYPE zprxx_tmlist.
+
+DATA: gt_colt  TYPE TABLE OF j_3acolrt,
+      gt_t179  TYPE TABLE OF t179,
+      gt_t179t TYPE TABLE OF t179t,
+      gs_colt  TYPE j_3acolrt,
+      gs_t179t TYPE t179t.
+* Constants
+CONSTANTS:  gc_null        TYPE x VALUE '00',
+            gc_on(1)       TYPE n VALUE '1',
+            gc_3           TYPE char1 VALUE '3',
+            gc_off(1)      TYPE n VALUE '0',
+            gc_memoryid    TYPE indx-srtfd VALUE 'ZXXPR_CUSTCAT',
+            gc_localeid_en TYPE zplumriver_lid VALUE '1033', "ENGLISH
+            gc_timestart   TYPE syuzeit VALUE '000000',  "start of day
+            gc_timefinish  TYPE syuzeit VALUE '235959'. "end of day
+
+CONSTANTS: c_1 TYPE char1 VALUE '1'.
+
+FIELD-SYMBOLS: <mara>         LIKE gs_mara,
+               <pricedata>    LIKE gs_pricedata,
+               <pricedatacpy> LIKE gs_pricedata,
+               <department>   LIKE gs_department,
+               <deptstyle>    LIKE gs_deptstyle,
+               <custprice>    LIKE gs_custprice,
+               <katalog>      LIKE gs_katalog,
+               <catalog>      LIKE gs_catalog,
+               <sku>          LIKE gs_sku,
+               <pricat>       LIKE gs_pricat,
+               <catstyle>     LIKE gs_catstyle,
+               <style>        LIKE gs_style.
+
+
+
+************************************************************************
+*                   Selection Screen
+************************************************************************
+* Block BLK0:  Technical Website Selection
+SELECTION-SCREEN BEGIN OF BLOCK blk0 WITH FRAME TITLE text-b00.
+PARAMETERS:  p_tsite TYPE ztxx_pr_website-website
+                     MATCHCODE OBJECT zxpr_sh_website
+                     OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK blk0.
+SELECTION-SCREEN SKIP 1.
+* Block BLK1:  General Selections
+SELECTION-SCREEN BEGIN OF BLOCK blk1 WITH FRAME TITLE text-001.
+SELECT-OPTIONS: s_matnr  FOR mara-matnr,
+*                s_werks for marc-werks,
+                s_vkorg FOR mvke-vkorg,
+                s_vtweg FOR mvke-vtweg,
+                s_spart FOR mara-spart,
+                s_mtart FOR gs_mara-mtart,
+                s_matkl FOR gs_mara-matkl,
+                s_extwg FOR mara-extwg,
+                s_prdha FOR gs_mara-prdha,
+                s_mvgr2 FOR gs_mara-mvgr2,
+                s_mvgr3 FOR gs_mara-mvgr3,
+                s_mvgr4 FOR gs_mara-mvgr4,
+                s_mstav FOR mara-mstav.
+
+SELECTION-SCREEN END OF BLOCK blk1.
+* Block BLK2:  Target Catalogs
+SELECTION-SCREEN BEGIN OF BLOCK blkc WITH FRAME TITLE text-bkc.
+SELECT-OPTIONS:  s_catlog FOR gs_katalog-catalogx
+                          MATCHCODE OBJECT zxpr_sh_katalog.
+SELECTION-SCREEN END OF BLOCK blkc.
+* Block BLK3:  Pricing Conditions
+SELECTION-SCREEN BEGIN OF BLOCK blk3 WITH FRAME TITLE text-bk3.
+PARAMETERS:  p_kalsm TYPE vbak-kalsm DEFAULT 'XSTAND'
+                     MATCHCODE OBJECT wty_f4_kalsm
+                     OBLIGATORY MODIF ID inv,
+             p_vdate TYPE datum DEFAULT sy-datum MODIF ID inv.
+SELECT-OPTIONS:  s_kschl FOR t683s-kschl NO INTERVALS OBLIGATORY MODIF ID inv,
+                 s_auart FOR vbak-auart MODIF ID inv,
+                 s_land1 FOR t005-land1 MODIF ID inv,
+                 s_pltyp FOR knvv-pltyp MODIF ID inv.
+*{   DELETE         TSDK905521                                        2
+*\PARAMETERS: p_flag TYPE char1 DEFAULT 'X' MODIF ID inv.
+*}   DELETE
+
+
+SELECTION-SCREEN END OF BLOCK blk3.
+*{   INSERT         TSDK905521                                        1
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-s01.
+PARAMETERS: ch_var AS CHECKBOX DEFAULT space.
+SELECTION-SCREEN END OF BLOCK b1.
+*}   INSERT
+
+AT SELECTION-SCREEN OUTPUT.
+*{   DELETE         TSDK905521                                        1
+*\  LOOP AT SCREEN.
+*\    IF screen-group1 = 'INV'.
+*\      screen-invisible = 1.
+*\      screen-input     = 0.
+*\      MODIFY SCREEN.
+*\    ENDIF.
+*\  ENDLOOP.
+*}   DELETE
+
+
+************************************************************************
+*********************  Start-of-Selection  *****************************
+************************************************************************
+START-OF-SELECTION.
+
+  PERFORM set_globals.          "set fields, work areas, etc.
+  PERFORM get_material_list.    "retrieve materials and details
+  PERFORM get_catalog_list.     "retrieve catalog details
+  PERFORM fill_catalog.         "Write Catalog list
+  PERFORM fill_catstyle.        "Write Catalog/Style list
+  PERFORM fill_style.           "Write Material
+  PERFORM fill_sku.             "Write Material Grid details
+*{   DELETE         TSDK905521                                        1
+*\  IF p_flag EQ space.
+*}   DELETE
+  PERFORM get_pricing.          "retrieve pricing information
+  PERFORM fill_pricat.          "Write Price/Catalog list
+*{   DELETE         TSDK905521                                        2
+*\  ENDIF.
+*}   DELETE
+*  perform FILL_CUSTPRIC.        "Write Customer Price Catalog list
+
+************************************************************************
+*********************   END-OF-SELECTION   *****************************
+************************************************************************
+END-OF-SELECTION.
+  MESSAGE i007(zplumriver).
+
+
+************************************************************************
+**********************   SUBROUTINES   *********************************
+************************************************************************
+*&---------------------------------------------------------------------*
+*&      Form  set_globals
+*&---------------------------------------------------------------------*
+FORM set_globals .
+* set intial values for global fields and work areas
+*// Local declarations
+
+
+*// BEGIN PROCESSING
+* initialize variables and structures
+  CLEAR:  gv_tabix,
+          gv_vkorg,
+          gv_vtweg,
+          gv_spart,
+          gs_techsite,
+          gs_tablekey.
+
+* Get technical website details and set HDI table primary field.
+  SELECT SINGLE website pr_website url
+            FROM ztxx_pr_website
+            INTO gs_techsite
+            WHERE website = p_tsite.
+  IF sy-subrc = 0.
+    gs_tablekey-techsite = p_tsite.
+  ELSE.
+    MESSAGE e011(zplumriver) WITH p_tsite.
+  ENDIF.   "sy-subrc = 0  [on select single... from ZTXX_PR_WEBSITE]
+
+* Set remaining Primary key field for table updates
+* Determine Sales Organization(s)
+  SELECT  vkorg bukrs adrnr
+      FROM tvko INTO TABLE gt_tvko
+      WHERE vkorg IN s_vkorg.
+  IF sy-subrc = 0.
+    LOOP AT gt_tvko INTO gs_tvko.
+      IF sy-tabix = 1.
+        gs_tablekey-vkorg = gs_tvko-vkorg.
+      ELSE.
+        CLEAR:  gs_tablekey-vkorg.
+        EXIT.
+      ENDIF.    "sy-tabix = 1
+    ENDLOOP.   "at GT_TVKO into gs_TVKO
+  ENDIF.   " sy-subrc = 0
+* Determine Distribution Channel(s)
+  SELECT  vtweg
+      FROM tvtw INTO TABLE gt_tvtw
+      WHERE vtweg IN s_vtweg.
+  IF sy-subrc = 0.
+    LOOP AT gt_tvtw INTO gs_tvtw.
+      IF sy-tabix = 1.
+        gs_tablekey-vtweg = gs_tvtw-vtweg.
+      ELSE.
+        CLEAR:  gs_tablekey-vtweg.
+        EXIT.
+      ENDIF.    "sy-tabix = 1
+    ENDLOOP.   "at gt_tvtw into gs_tvtw
+  ENDIF.   " sy-subrc = 0
+* Determine Division(s)
+  SELECT  spart
+      FROM tspa INTO TABLE gt_tspa
+      WHERE spart IN s_spart.
+  IF sy-subrc = 0.
+    LOOP AT gt_tspa INTO gs_tspa.
+      IF sy-tabix = 1.
+        gs_tablekey-spart = gs_tspa-spart.
+      ELSE.
+        CLEAR:  gs_tablekey-spart.
+        EXIT.
+      ENDIF.    "sy-tabix = 1
+    ENDLOOP.   "at gt_tspa into gs_tspa
+  ENDIF.   " sy-subrc = 0
+
+* assign global variables
+  gv_vkorg = gs_tablekey-vkorg.
+  gv_vtweg = gs_tablekey-vtweg.
+  gv_spart = gs_tablekey-spart.
+
+* fill localeID translation table (get all keys)
+  CLEAR:  gs_localeid.
+  SELECT  localeid spras
+      FROM ztxx_pr_localeid
+      INTO gs_localeid.
+    INSERT gs_localeid INTO TABLE gt_localeid.
+  ENDSELECT.   "from ZTXX_PR_LOCALEID...
+
+ENDFORM.                    " set_globals
+
+
+*&---------------------------------------------------------------------*
+*&      Form  FILL_STYLE
+*&---------------------------------------------------------------------*
+FORM fill_style.
+* Fill ZTXX_PR_STYLE HDI table
+  CLEAR:  gs_style,
+          gt_style[].
+
+  CLEAR:  gv_seq,
+          gv_dateinserted.
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+  CLEAR: gt_gnr,gt_atnn,gt_cabt,gt_cawn.
+  gt_mat[] = gt_mara[].
+  SORT gt_mat BY matnr.
+  DELETE ADJACENT DUPLICATES FROM gt_mat COMPARING matnr.
+  IF NOT gt_mat[] IS INITIAL.
+    SELECT * FROM j_3apghd INTO TABLE gt_gnr FOR ALL ENTRIES IN gt_mat
+    WHERE j_3apgnr = gt_mat-j_3apgnr.
+    IF NOT gt_gnr[] IS INITIAL.
+      LOOP AT gt_gnr INTO gs_gnr.
+        CLEAR: gs_atnn.
+        gs_atnn-j_3abzd = gs_gnr-j_3abzd1.
+        gs_atnn-atinn   = gs_gnr-j_3abzd1.
+        APPEND gs_atnn TO gt_atnn.
+        CLEAR: gs_atnn.
+        gs_atnn-j_3abzd = gs_gnr-j_3abzd2.
+        gs_atnn-atinn   = gs_gnr-j_3abzd2.
+        APPEND gs_atnn TO gt_atnn.
+        CLEAR: gs_atnn.
+        gs_atnn-j_3abzd = gs_gnr-j_3abzd3.
+        gs_atnn-atinn   = gs_gnr-j_3abzd3.
+        APPEND gs_atnn TO gt_atnn.
+      ENDLOOP.
+      DELETE gt_atnn WHERE j_3abzd EQ space.
+      IF NOT gt_atnn[] IS INITIAL.
+        SELECT * FROM cabnt APPENDING TABLE gt_cabt FOR ALL ENTRIES IN gt_atnn
+        WHERE atinn = gt_atnn-atinn
+          AND spras = sy-langu.
+        SELECT atinn atzhl adzhl atwrt FROM cawn INTO TABLE gt_cawn
+        FOR ALL ENTRIES IN gt_atnn WHERE atinn = gt_atnn-atinn.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+  LOOP AT gt_mat ASSIGNING <mara>.
+    CLEAR: gs_style,gs_cabt,gs_atnn,gs_gnr,gs_gendt,wa_mlist.
+*-- set primary key
+    gv_seq = gv_seq + 1.
+    gs_style-mandt = sy-mandt.
+    gs_style-techsite = gs_tablekey-techsite.
+    gs_style-vkorg = space.
+    gs_style-vtweg = space.
+    gs_style-spart = <mara>-spart.
+*    gs_style-seq = gv_seq.
+*-- set HDI fields
+    gs_style-id = gv_seq.
+    gs_style-localeid = gc_localeid_en.      "1033: English
+*    READ TABLE it_mlist INTO wa_mlist WITH KEY zzmatnr = <mara>-matnr.
+*    IF sy-subrc NE 0.
+*      WRITE:  <mara>-matnr TO gs_style-style LEFT-JUSTIFIED
+*                            USING EDIT MASK '==ALPHA'.
+*    ELSE.
+*      WRITE:  <mara>-matnr TO gs_style-style LEFT-JUSTIFIED.
+*    ENDIF.
+    CALL FUNCTION 'CONVERSION_EXIT_MATN1_OUTPUT'
+      EXPORTING
+        input  = <mara>-matnr
+      IMPORTING
+        output = gs_style-style.
+    gs_style-hostref = gs_style-style.
+    gs_style-website = gs_techsite-pr_website.
+    PERFORM get_material_description  USING <mara>-matnr
+                                            gs_style-localeid
+                                   CHANGING gs_style-name.
+    gs_style-description = gs_style-name.
+    gs_style-zzstyle = gs_style-style.
+    gs_style-alpha = <mara>-extwg.
+*    GS_STYLE-VENDOR
+*    GS_STYLE-SUPPLIERSTYLE
+    WRITE: <mara>-ntgew TO gs_style-weight
+                        UNIT <mara>-gewei.
+*    READ TABLE gt_gnr INTO gs_gnr WITH KEY j_3apgnr = <mara>-j_3apgnr.
+*    IF sy-subrc EQ 0.
+*      READ TABLE gt_atnn INTO gs_atnn WITH KEY j_3abzd = gs_gnr-j_3abzd2.
+*      IF sy-subrc EQ 0.
+*        READ TABLE gt_cabt INTO gs_cabt WITH KEY atinn = gs_atnn-atinn.
+*        IF sy-subrc EQ 0.
+*          gs_style-attributelabel1 = gs_cabt-atbez.
+*        ENDIF.
+*      ENDIF.
+*      READ TABLE gt_atnn INTO gs_atnn WITH KEY j_3abzd = gs_gnr-j_3abzd1.
+*      IF sy-subrc EQ 0.
+*        READ TABLE gt_cabt INTO gs_cabt WITH KEY atinn = gs_atnn-atinn.
+*        IF sy-subrc EQ 0.
+*          gs_style-attributelabel2 = gs_cabt-atbez.
+*        ENDIF.
+*      ENDIF.
+*      READ TABLE gt_atnn INTO gs_atnn WITH KEY j_3abzd = gs_gnr-j_3abzd3.
+*      IF sy-subrc EQ 0.
+*        READ TABLE gt_cabt INTO gs_cabt WITH KEY atinn = gs_atnn-atinn.
+*        IF sy-subrc EQ 0.
+*          gs_style-attributelabel3 = gs_cabt-atbez.
+*        ENDIF.
+*      ENDIF.
+*      READ TABLE gt_gendt INTO gs_gendt WITH KEY spras    = sy-langu
+*                                                 j_3agend = <mara>-j_3agend.
+*      IF sy-subrc EQ 0.
+
+*      ENDIF.
+*    ENDIF.
+    gs_style-attributelabel1 = 'Size'.
+    gs_style-attributelabel2 = 'Width'.
+    gs_style-attributelabel3 = 'Gender'.
+    gs_style-attributelabel4 = 'ColorCode'.
+    gs_style-attributelabel5 = 'ColorName'.
+*    GS_STYLE-ATTRIBUTELABEL4 = 'Material No.'.
+*    GS_STYLE-ATTRIBUTELABEL5
+    gs_style-dateinserted = gv_dateinserted.
+
+    APPEND gs_style TO gt_style.
+  ENDLOOP.
+  MODIFY ztxx_pr_style FROM TABLE gt_style.
+  IF sy-subrc = 0.
+    COMMIT WORK.
+  ELSE.
+*---- Records failed to be inserted
+    ROLLBACK WORK.
+    MESSAGE e100(zplumriver) WITH 'Style'.
+  ENDIF.
+ENDFORM.                    " FILL_STYLE
+
+
+*&---------------------------------------------------------------------*
+*&      Form  FILL_SKU
+*&---------------------------------------------------------------------*
+FORM fill_sku .
+*  DESCRIPTION:  Fill ZTXX_PR_SKU HDI table
+
+*// Local declaration
+  DATA:  lv_ean11    TYPE ean11,
+         lv_tabix(4).
+
+* UPC lookup
+  DATA: BEGIN OF ls_mean,
+          matnr     TYPE mean-matnr,
+          j_3akordx TYPE mean-j_3akordx,
+          meinh     TYPE mean-meinh,
+          lfnum     TYPE mean-lfnum,
+          ean11     TYPE mean-ean11,
+        END OF ls_mean.
+
+  DATA:  lt_mean LIKE STANDARD TABLE OF ls_mean
+                 WITH NON-UNIQUE KEY matnr j_3akordx
+                 INITIAL SIZE 30.
+
+* Grid determination structures
+  DATA: ls_komk TYPE j_3akomk,  "Grid Determ. Communication Header
+        ls_komp TYPE j_3akomp,  "Grid Determination Communication Item
+        ls_grhd TYPE j_3agrhd,  "AFS Grid Condition Header
+        ls_grcd TYPE j_3agrcd,   "AFS Sales-Grid: Control-Data
+        ls_pghd TYPE j_3apghd,   "AFS Product grid header
+        ls_grid TYPE j_3apgen.   "AFS Product grid entries
+
+  DATA: lt_grcd LIKE STANDARD TABLE OF ls_grcd
+                WITH NON-UNIQUE KEY  mandt knumh j_3apgnr
+                                     j_3avdat j_3asize
+                INITIAL SIZE 25.
+
+  DATA:  lt_grid LIKE STANDARD TABLE OF ls_grid
+                 WITH NON-UNIQUE KEY  mandt j_3apgnr j_3avdat
+                                      j_3akord1 j_3akord2 j_3akord3
+                 INITIAL SIZE 25.
+
+  DATA:  lv_3apgnr TYPE mara-j_3apgnr.
+
+*  DATA: l_z1 TYPE numtp VALUE 'Z1'.
+  DATA: lr_numtp TYPE RANGE OF numtp,                       "D02K911949
+        ls_numtp LIKE LINE OF lr_numtp.                     "D02K911949
+  ls_numtp-sign = 'I'.                                      "D02K911949
+  ls_numtp-option = 'EQ'.                                  "D02K911949
+  ls_numtp-low = 'Z1'.                                      "D02K911949
+  APPEND ls_numtp TO lr_numtp.                              "D02K911949
+  ls_numtp-low = 'Z4'.                                      "D02K911949
+  APPEND ls_numtp TO lr_numtp.                              "D02K911949
+
+  FIELD-SYMBOLS:  <grid> LIKE ls_grid,
+                  <mean> LIKE ls_mean.
+
+*// Begin Processing
+  CLEAR:  gs_sku,
+          gt_sku[].
+
+  CLEAR:  gv_seq,
+          gv_dateinserted.
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+  LOOP AT gt_mat ASSIGNING <mara>.
+*-- GET GRID DETAILS (SALES OR MASTER)
+    CLEAR: ls_grhd,
+           ls_pghd,
+           ls_grcd,gs_gendt,gs_gnr,gs_atnn,gs_colt,gs_t179t.
+    REFRESH:  lt_grcd.
+    ls_komp-matnr    = <mara>-matnr.
+    ls_komp-j_3amgnr = <mara>-j_3apgnr.
+    CALL FUNCTION 'J_3A_GRID_DETERMINATION'
+      EXPORTING
+        date                 = sy-datum
+        header_communication = ls_komk
+        item_communication   = ls_komp
+        scheme               = <mara>-j_3akalsv
+      IMPORTING
+        kondj_data           = ls_grhd
+        j_3apghd_o           = ls_pghd
+      TABLES
+        kondjc_data          = lt_grcd
+      EXCEPTIONS
+        not_found            = 1
+        OTHERS               = 2.
+
+    IF ls_pghd-j_3apgnr IS INITIAL.
+      lv_3apgnr = <mara>-j_3apgnr.
+    ELSE.
+      lv_3apgnr = ls_pghd-j_3apgnr.
+    ENDIF.
+*-- SELECT GRID
+    CLEAR: ls_pghd, ls_grid.
+    REFRESH: lt_grid.
+    CALL FUNCTION 'J_3A_SELECT_GRID'
+      EXPORTING
+        j_3apgnr_i = lv_3apgnr
+        j_3avdat_i = sy-datum
+      IMPORTING
+        j_3apghd_o = ls_pghd
+      TABLES
+        xj_3apgen  = lt_grid
+      EXCEPTIONS
+        no_grid    = 1
+        no_date    = 2
+        OTHERS     = 3.
+*-- get UPC list for material
+
+    REFRESH:  lt_mean.
+    SELECT  matnr j_3akordx meinh
+            lfnum ean11
+        FROM mean INTO TABLE lt_mean
+        WHERE matnr = <mara>-matnr
+          AND eantp IN lr_numtp                             "D02K911949
+          AND /afs/eanblock = c_1.
+*-- build GT_SKU
+    CLEAR:  lv_tabix.
+*    READ TABLE gt_gendt INTO gs_gendt WITH KEY spras    = sy-langu
+*                                               j_3agend = <mara>-j_3agend.
+    READ TABLE gt_colt INTO gs_colt WITH KEY spras = sy-langu
+                                             j_3acol = <mara>-j_3acol.
+    READ TABLE gt_t179t INTO gs_t179t WITH KEY spras = sy-langu
+                                               prodh = <mara>-prdha+0(6).
+    READ TABLE gt_gnr INTO gs_gnr WITH KEY j_3apgnr = <mara>-j_3apgnr.
+    IF sy-subrc EQ 0.
+*{   REPLACE        TSDK905750                                        4
+*\      READ TABLE gt_atnn INTO gs_atnn WITH KEY j_3abzd = gs_gnr-j_3abzd2.
+      READ TABLE gt_atnn INTO gs_atnn WITH KEY j_3abzd = gs_gnr-j_3abzd1.
+*}   REPLACE
+    ENDIF.
+    LOOP AT lt_grid ASSIGNING <grid>.
+      CLEAR:  gs_sku,
+              lv_ean11,
+              ls_mean,gs_cawn,wa_mlist.
+*---- determine UPC number and format.
+      READ TABLE lt_mean ASSIGNING <mean>
+                         WITH KEY matnr = <mara>-matnr
+                                  j_3akordx = <grid>-j_3akordx.
+      IF sy-subrc = 0.
+        IF <mean>-ean11 IS INITIAL.
+          CONTINUE.
+        ENDIF.
+        CALL FUNCTION 'CONVERSION_EXIT_EAN11_OUTPUT'
+          EXPORTING
+            input  = <mean>-ean11
+          IMPORTING
+            output = lv_ean11.
+        gs_sku-upc = lv_ean11.
+      ELSE.
+        CONTINUE.
+      ENDIF.   "sy-subrc = 0  [ON  read table LT_MEAN...]
+      lv_tabix = sy-tabix.
+      SHIFT lv_tabix LEFT DELETING LEADING space.
+*-- set primary key
+      gv_seq = gv_seq + 1.
+      gs_sku-mandt = sy-mandt.
+      gs_sku-techsite = gs_techsite-website.
+      gs_sku-vkorg = space.
+      gs_sku-vtweg = space.
+      gs_sku-spart = space.
+*      gs_sku-seq = gv_seq.
+*-- set remaining HDI fields
+      gs_sku-id = gv_seq.
+      gs_sku-localeid = gc_localeid_en.
+*      READ TABLE it_mlist INTO wa_mlist WITH KEY zzmatnr = <mara>-matnr.
+*      IF sy-subrc NE 0.
+*        WRITE:  <mara>-matnr TO gs_sku-style LEFT-JUSTIFIED
+*                             USING EDIT MASK '==ALPHA'.
+*      ELSE.
+*        WRITE:  <mara>-matnr TO gs_sku-style LEFT-JUSTIFIED.
+*      ENDIF.
+      CALL FUNCTION 'CONVERSION_EXIT_MATN1_OUTPUT'
+        EXPORTING
+          input  = <mara>-matnr
+        IMPORTING
+          output = gs_sku-style.
+*{   REPLACE        TSDK905750                                        1
+*\      CONCATENATE gs_sku-style <grid>-j_3akord2 <grid>-j_3akord1
+      CONCATENATE gs_sku-style <grid>-j_3akord1 <grid>-j_3akord2
+*}   REPLACE
+              INTO gs_sku-sku.
+      CONDENSE gs_sku-sku NO-GAPS.
+      gs_sku-zzsku = gs_sku-hostref = gs_sku-sku.
+      gs_sku-skualpha = gs_sku-style.
+      gs_sku-website = gs_techsite-pr_website.
+*{   REPLACE        TSDK905750                                        2
+*\      gs_sku-attributevalue1 = <grid>-j_3akord2.
+*\      gs_sku-attributevalue2 = <grid>-j_3akord1.
+      gs_sku-attributevalue1 = <grid>-j_3akord1.
+      gs_sku-attributevalue2 = <grid>-j_3akord2.
+      gs_sku-attributevalue3 = gs_t179t-vtext.
+      gs_sku-attributevalue4 = <mara>-j_3acol.
+      gs_sku-attributevalue5 = gs_colt-text.
+      gs_sku-unitmeasure = <mara>-vrkme.
+*---- minimum order qty
+      WRITE:  <mara>-aumng TO gs_sku-orderminimum LEFT-JUSTIFIED
+                           UNIT <mara>-meins.
+*---- order multiple
+      IF <mara>-scmng IS INITIAL.
+        gs_sku-ordermultiple = 1.
+      ELSE.
+        WRITE:  <mara>-scmng TO gs_sku-ordermultiple LEFT-JUSTIFIED
+                             UNIT <mara>-schme.
+      ENDIF.   "<MARA>-SCMNG is initial
+*---- sort order
+      READ TABLE gt_cawn INTO gs_cawn WITH KEY atinn = gs_atnn-atinn
+*{   REPLACE        TSDK905750                                        3
+*\                                               atwrt = <grid>-j_3akord2.
+                                               atwrt = <grid>-j_3akord1.
+*}   REPLACE
+      IF sy-subrc EQ 0.
+        gs_sku-sortorder = gs_cawn-atzhl.
+        CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+          EXPORTING
+            input  = gs_sku-sortorder
+          IMPORTING
+            output = gs_sku-sortorder.
+      ENDIF.
+      gs_sku-dateinserted = gv_dateinserted.
+** Fields currently unmapped
+*      GS_SKU-ATTRIBUTEVALUE4
+*      GS_SKU-ATTRIBUTEVALUE5
+*      GS_SKU-IMAGEFILESMALL
+*      GS_SKU-IMAGEFILEMEDIUM
+*      GS_SKU-IMAGEFILELARGE
+*      GS_SKU-ORDERMAXIMUM
+      APPEND gs_sku TO gt_sku.
+    ENDLOOP.   "AT LT_GRID assigning <GRID>
+  ENDLOOP.
+  MODIFY ztxx_pr_sku FROM TABLE gt_sku.
+  IF sy-subrc = 0.
+    COMMIT WORK.
+  ELSE.
+*---- Records failed to be inserted
+    ROLLBACK WORK.
+    MESSAGE e100(zplumriver) WITH 'SKU'.
+  ENDIF.
+ENDFORM.                    " FILL_SKU
+
+
+*&---------------------------------------------------------------------*
+*&      Form  DELETE_DB_ROWS
+*&---------------------------------------------------------------------*
+FORM delete_db_rows USING    us_tablekey LIKE gs_tablekey
+                             us_tablename TYPE c
+                    CHANGING ch_rc TYPE sysubrc.
+*  DESCRIPTION: Delete table rows before subsequent update.
+*               CH_RC = 0:   Successful
+*               CH_RC <> 0:  Failure
+
+* LOCAL DECLARATION
+  DATA: lv_mandt TYPE mandt.
+
+
+  CLEAR:  ch_rc.
+  DELETE FROM (us_tablename)
+         WHERE techsite = us_tablekey-techsite.  "   AND
+*               VKORG IN S_VKORG                  AND
+*               VTWEG IN S_VTWEG                  AND
+*               SPART IN S_SPART.
+  ch_rc = sy-subrc.
+  IF ch_rc <> 0.
+*-- Did deletion fail because there is no record(s) to delete??
+*-- Check for a record... return a successful code (0) if none found
+    SELECT SINGLE mandt
+            INTO lv_mandt
+            FROM (us_tablename)
+            WHERE techsite = us_tablekey-techsite.  "   AND
+*                  VKORG IN S_VKORG.                 AND
+*                  VTWEG IN S_VTWEG                  AND
+*                  SPART IN S_SPART.
+    IF sy-subrc <> 0.
+*---- no records found, new records can be inserted (later)... success.
+      ch_rc = 0.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.                    " DELETE_DB_ROWS
+*&---------------------------------------------------------------------*
+*&      Form  FILL_CATALOG
+*&---------------------------------------------------------------------*
+FORM fill_catalog .
+* DESCRIPTION:  Fill Catalog HDI table
+
+*// Local Declarations
+  FIELD-SYMBOLS:  <katalog> LIKE gs_katalog.
+
+*// Begin Processing
+  CLEAR:  gs_catalog,
+          gt_catalog[],
+          gv_seq,
+          gv_dateinserted.
+
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+
+  LOOP AT gt_katalog ASSIGNING <katalog>.
+    CLEAR: gs_catalog.
+    gv_seq = gv_seq + 1.
+*-- set primary key
+    gs_catalog-mandt = sy-mandt.
+    gs_catalog-techsite = gs_tablekey-techsite.
+    gs_catalog-vkorg = gv_vkorg.
+    gs_catalog-vtweg = gv_vtweg.
+    gs_catalog-spart = gv_spart.
+    gs_catalog-seq = gv_seq.
+*-- set HDI fields
+    gs_catalog-id = gv_seq.
+    gs_catalog-localeid = <katalog>-localeid.
+    gs_catalog-hostref = <katalog>-catalogx.
+    gs_catalog-zzcatalog = gs_catalog-catalogx = <katalog>-catalogx.
+    gs_catalog-website = gs_techsite-pr_website.
+    gs_catalog-salesorg = <katalog>-salesorg.
+    gs_catalog-division = <katalog>-division.
+    gs_catalog-distchnl = <katalog>-distchnl.
+    gs_catalog-name = <katalog>-name.
+    gs_catalog-description = <katalog>-description.
+    gs_catalog-catalogtext = <katalog>-catalogtext.
+    gs_catalog-catalogtype = <katalog>-catalogtype.
+    CONCATENATE <katalog>-dateeffective
+                gc_timestart
+            INTO gs_catalog-dateeffective.
+    CONCATENATE <katalog>-dateexpiration
+                gc_timefinish
+            INTO gs_catalog-dateexpiration.
+    CONCATENATE <katalog>-dateorderstart
+                gc_timestart
+            INTO gs_catalog-dateorderstart.
+    CONCATENATE <katalog>-dateorderend
+                gc_timefinish
+            INTO gs_catalog-dateorderend.
+    CONCATENATE <katalog>-dateshipstart
+                gc_timestart
+            INTO gs_catalog-dateshipstart.
+    CONCATENATE <katalog>-dateshipend
+                gc_timefinish
+            INTO gs_catalog-dateshipend.
+    gs_catalog-ordertype = <katalog>-ordertype.
+    gs_catalog-sortorderrow = <katalog>-sortorderrow.
+    gs_catalog-sortordercolumn = <katalog>-sortordercolumn.
+    gs_catalog-imagefilename = <katalog>-imagefilename.
+    gs_catalog-displaymsrp = <katalog>-displaymsrp.
+    gs_catalog-displaywholesale = <katalog>-displaywholesale.
+    gs_catalog-displaynet = <katalog>-displaynet.
+    gs_catalog-displayimages = <katalog>-displayimages.
+    gs_catalog-atp = <katalog>-atp.
+    gs_catalog-atpcountdown = <katalog>-atpcountdown.
+    gs_catalog-atslabel = <katalog>-atslabel.
+    gs_catalog-atsstyle = <katalog>-atsstyle.
+    gs_catalog-atpstyle = <katalog>-atpstyle.
+    gs_catalog-atpsuppresszero = <katalog>-atpsuppresszero.
+    gs_catalog-atpunitmeasure = <katalog>-atpunitmeasure.
+    gs_catalog-atpindeterminate = <katalog>-atpindeterminate.
+    gs_catalog-opentreeview = <katalog>-opentreeview.
+    gs_catalog-formdefault = <katalog>-formdefault.
+    gs_catalog-formswitch = <katalog>-formswitch.
+    gs_catalog-reqdatedays = <katalog>-reqdatedays.
+    gs_catalog-reqdefaultdays = <katalog>-reqdefaultdays.
+    gs_catalog-canceldatedays = <katalog>-canceldatedays.
+    gs_catalog-canceldefltdays = <katalog>-canceldefltdays.
+    gs_catalog-specialinstructs = <katalog>-specialinstructs.
+    gs_catalog-ordershipdate = <katalog>-ordershipdate.
+    gs_catalog-backorder = <katalog>-backorder.
+    gs_catalog-pricing = <katalog>-pricing.
+    gs_catalog-receiverid = <katalog>-receiverid.
+    gs_catalog-enabled = <katalog>-enabled.                 "1: enabled
+    gs_catalog-dateinserted = gv_dateinserted.
+
+    APPEND gs_catalog TO gt_catalog.
+  ENDLOOP.   "AT GT_KATALOG assigning <KATALOG>
+*  MODIFY ztxx_pr_catalog FROM TABLE gt_catalog.
+*  IF sy-subrc = 0.
+*    COMMIT WORK.
+*  ELSE.
+**---- Records failed to be inserted
+*    ROLLBACK WORK.
+*    MESSAGE e100(zplumriver) WITH 'Catalog'.
+*  ENDIF.
+ENDFORM.                    " FILL_CATALOG
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_CATALOG_LIST
+*&---------------------------------------------------------------------*
+FORM get_catalog_list.
+* Description Retrieve Catalog list from ZTXX_PR_KATALOG
+
+  CLEAR:  gs_katalog,
+          gt_katalog[].
+
+  SELECT *
+      FROM ztxx_pr_katalog
+      INTO TABLE gt_katalog
+      WHERE techsite = p_tsite        AND
+            catalogx IN s_catlog      AND
+            enabled = '1'.
+
+ENDFORM.                    " GET_CATALOG_LIST
+
+
+*&---------------------------------------------------------------------*
+*&      Form  FILL_CATSTYLE
+*&---------------------------------------------------------------------*
+FORM fill_catstyle.
+* DESCRIPTION:  Fill Catalog/Style HDI table
+  CLEAR:  gs_catstyle,
+          gt_catstyle[].
+  CLEAR:  gv_seq,
+          gv_dateinserted.
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+  CLEAR: it_mlist.
+  SELECT * FROM zprxx_tmlist INTO TABLE it_mlist.
+
+  LOOP AT gt_catalog INTO gs_catalog.
+    LOOP AT gt_mara ASSIGNING <mara> WHERE vkorg = gs_catalog-salesorg
+                                       AND vtweg = gs_catalog-distchnl.
+      CLEAR:  gs_catstyle,
+              gv_matnr,wa_mlist.
+*  -- set primary key
+      gv_seq = gv_seq + 1.
+      gs_catstyle-mandt = sy-mandt.
+      gs_catstyle-techsite = gs_techsite-website.
+      gs_catstyle-vkorg = gs_catalog-salesorg.
+      gs_catstyle-vtweg = gs_catalog-distchnl.
+      gs_catstyle-spart = <mara>-spart.
+      gs_catstyle-seq = gv_seq.
+*  -- set remaining HDI fields
+*      READ TABLE it_mlist INTO wa_mlist WITH KEY zzmatnr = <mara>-matnr.
+*      IF sy-subrc NE 0.
+*        WRITE: <mara>-matnr TO gv_matnr LEFT-JUSTIFIED
+*                           USING EDIT MASK '==ALPHA'.
+*      ELSE.
+*        WRITE: <mara>-matnr TO gv_matnr LEFT-JUSTIFIED.
+*      ENDIF.
+      CALL FUNCTION 'CONVERSION_EXIT_MATN1_OUTPUT'
+        EXPORTING
+          input  = <mara>-matnr
+        IMPORTING
+          output = gv_matnr.
+
+      gs_catstyle-id = gv_dateinserted.
+      gs_catstyle-localeid = gc_localeid_en.
+      CONCATENATE gs_catalog-catalogx
+                  gv_matnr
+              INTO gs_catstyle-catalogstyle.
+      gs_catstyle-hostref = gs_catstyle-catalogstyle.
+      gs_catstyle-website = gs_techsite-pr_website.
+      gs_catstyle-dateinserted = gv_dateinserted.
+      gs_catstyle-zzcatalog = gs_catstyle-catalogx = gs_catalog-catalogx.
+      gs_catstyle-style = gv_matnr.
+      CONCATENATE gs_catalog-dateeffective
+                  gc_timestart
+              INTO gs_catstyle-dateeffective.
+      CONCATENATE gs_catalog-dateexpiration
+                  gc_timefinish
+              INTO gs_catstyle-dateexpiration.
+      gs_catstyle-dateinserted = gv_dateinserted.
+      APPEND gs_catstyle TO gt_catstyle.
+    ENDLOOP.
+  ENDLOOP.
+  MODIFY ztxx_pr_catstyle FROM TABLE gt_catstyle.
+  IF sy-subrc = 0.
+    COMMIT WORK.
+  ELSE.
+*---- Records failed to be inserted
+    ROLLBACK WORK.
+    MESSAGE e100(zplumriver) WITH 'Catalog_Style'.
+  ENDIF.
+ENDFORM.                    " FILL_CATSTYLE
+
+
+*&---------------------------------------------------------------------*
+*&      Form  FILL_PRICAT
+*&---------------------------------------------------------------------*
+FORM fill_pricat.
+* DESCRIPTION:  Fill Price/Catalog HDI table (ZTXX_PR_PRICAT)
+
+*// Local Declaration
+  DATA:  lts_pricedata LIKE SORTED TABLE OF gs_pricedata
+                       WITH NON-UNIQUE KEY matnr size kunnr
+                                           pricecode sortlevel
+                       INITIAL SIZE 0.
+
+* local PRICING CATALOG (SKU)
+  DATA: lt_pricat LIKE STANDARD TABLE OF gs_pricat
+                  WITH NON-UNIQUE KEY mandt techsite vkorg
+                                      vtweg spart seq
+                  INITIAL SIZE 0.
+
+*{   INSERT         TSDK905871                                        7
+  DATA: lt_rows   TYPE TABLE OF zsxx_pr_tablekey.
+  DATA: lv_cnt    TYPE i.
+*}   INSERT
+
+  DATA: lv_matnr TYPE  mara-matnr.
+  SORT gt_pricedata BY extwg pricecode pltyp knumh.
+  DELETE ADJACENT DUPLICATES FROM gt_pricedata COMPARING extwg pricecode pltyp knumh.
+*// Begin Processing
+* Prepare Sorted table
+  LOOP AT gt_pricedata ASSIGNING <pricedata>.
+    INSERT <pricedata> INTO TABLE lts_pricedata.
+  ENDLOOP.
+  FREE:  gt_pricedata.
+
+* Create HDI entries
+  CLEAR:  gs_pricat,
+          gt_pricat[].
+  CLEAR:  gv_seq,
+          gv_dateinserted.
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+
+*{   INSERT         TSDK905871                                        6
+  CLEAR: lv_cnt.
+  SELECT mandt techsite vkorg vtweg spart seq FROM ztxx_pr_pricat INTO
+  TABLE lt_rows.
+  IF sy-subrc EQ 0.
+    DESCRIBE TABLE lt_rows LINES gv_seq.
+    lv_cnt = gv_seq.
+  ENDIF.
+*}   INSERT
+
+  SELECT *
+    FROM ztxx_pr_sku
+    INTO CORRESPONDING FIELDS OF TABLE gt_sku
+   WHERE techsite = p_tsite.
+
+  SORT gt_sku BY sku vkorg vtweg spart.
+  DELETE ADJACENT DUPLICATES FROM gt_sku COMPARING sku vkorg vtweg spart.
+
+*  clear:  gs_KATALOG.
+*  READ TABLE GT_KATALOG into gs_KATALOG
+*                        index 1.
+*  IF sy-subrc = 0.
+  LOOP AT gt_sku ASSIGNING <sku>.
+    CLEAR: lv_matnr.
+    PERFORM conversion_exit_alpha_input USING <sku>-style
+                                     CHANGING lv_matnr.
+    IF NOT lv_matnr IN s_matnr.
+*------ Style (SAP material) is NOT in material selection criteria.
+      CONTINUE.  "to next loop pass
+    ENDIF.
+
+*---- build work area
+    CLEAR: gs_pricat,gs_mara.
+    READ TABLE gt_mara ASSIGNING <mara> WITH KEY matnr = lv_matnr.
+    IF sy-subrc EQ 0.
+*---- assign key fields
+      gs_pricat-mandt = sy-mandt.
+      gs_pricat-techsite = gs_tablekey-techsite.
+      gs_pricat-vtweg = gv_vtweg.
+      gs_pricat-spart = gv_spart.
+*---- HDI fields
+      gs_pricat-localeid = gc_localeid_en.
+      gs_pricat-website = gs_techsite-pr_website.
+      gs_pricat-catalogx = space.
+      gs_pricat-sku = <sku>-sku.
+      LOOP AT lts_pricedata ASSIGNING <pricedata>
+                            WHERE extwg = <mara>-extwg.
+        gv_seq = gv_seq + 1.
+        gs_pricat-seq = gv_seq.
+        gs_pricat-id = gv_seq.
+        gs_pricat-pricecode = <pricedata>-pricecode.
+*------ set sales organization
+        gs_pricat-vkorg = gs_pricat-salesorg = <pricedata>-vkorg.
+        gs_pricat-vtweg = gs_pricat-distchnl = <pricedata>-vtweg.
+        gs_pricat-spart = gs_pricat-division = <pricedata>-spart.
+        CONCATENATE
+                    <sku>-sku
+                    <pricedata>-pricecode
+                INTO gs_pricat-pricecatalog.
+        gs_pricat-hostref = gs_pricat-pricecatalog.
+        CONCATENATE <pricedata>-datab
+                    gc_timestart
+                INTO gs_pricat-dateeffective.
+        IF <pricedata>-kschl = 'MSRP'.
+          WRITE: <pricedata>-kbetr TO gs_pricat-pricemsrp CURRENCY <pricedata>-konwa.
+          gs_pricat-pricenet = space.
+          gs_pricat-pricewholesale = space.
+        ELSE.
+          gs_pricat-pricemsrp = space.
+          WRITE: <pricedata>-kbetr TO gs_pricat-pricewholesale
+                                   CURRENCY <pricedata>-konwa.
+          gs_pricat-pricenet = gs_pricat-pricewholesale.
+        ENDIF.
+
+        gs_pricat-dateinserted = gv_dateinserted.
+        APPEND gs_pricat TO gt_pricat.
+      ENDLOOP.   "AT lts_PriceData assigning <pricedata>
+    ENDIF.
+  ENDLOOP.  "AT GT_SKU assigning <SKU>
+*  endif.   "sy-subrc = 0  [ON Read table GT_KATALOG... index 1]
+
+*  SORT gt_pricat BY pricecode
+*                    sku
+*                    dateeffective
+*                    catalogx.
+** Remove duplicates before inserting into HDI table
+*  DELETE ADJACENT DUPLICATES FROM gt_pricat
+*                             COMPARING pricecode sku dateeffective
+*                                       catalogx.
+*  IF sy-subrc = 0.
+*    SORT gt_pricat BY seq.
+*    CLEAR:  gv_seq.
+**{   INSERT         TSDK905879                                        8
+*    gv_seq = lv_cnt.
+**}   INSERT
+*    LOOP AT gt_pricat ASSIGNING <pricat>.
+*      gv_seq = gv_seq + 1.
+*      <pricat>-seq = gv_seq.
+*    ENDLOOP.   "at gt_pricat assigning <pricat>
+*  ENDIF.
+
+** Now create entries for the remaining catalogs
+*  refresh:  LT_PRICAT.
+*  LOOP AT GT_KATALOG assigning <katalog>
+*                     from 2.
+*    LOOP AT GT_PRICAT INTO GS_PRICAT.
+*      gv_seq = gv_seq + 1.
+*      gs_PRICAT-SEQ = gv_seq.
+*      gs_PRICAT-ID = gv_seq.
+*      gs_PRICAT-CATALOGX = <Katalog>-catalogx.
+*      concatenate <Katalog>-catalogx
+*                  gs_PRICAT-SKU
+*                  GS_PRICAT-PriceCode
+*              into gs_PRICAT-PRICECATALOG.
+*      gs_PRICAT-HOSTREF = gs_PRICAT-PRICECATALOG.
+*      append gs_pricat to Lt_pricat.
+*    ENDLOOP.   "AT GT_PRICAT INTO GS_PRICAT
+*  ENDLOOP.   "AT GT_KATALOG assigning <katalog>
+*
+** APPEND NEW CATALOG LINES BEFORE SAVING TO DATABASE
+*  IF NOT LT_PRICAT[] IS INITIAL.
+*    APPEND LINES OF LT_PRICAT TO GT_PRICAT.
+*    FREE:  LT_PRICAT.
+*  ENDIF.   "
+
+* Insert PRICING_CATALOG records
+*{   DELETE         TSDK905521                                        1
+*\  PERFORM delete_db_rows  USING gs_tablekey
+*\                                'ZTXX_PR_PRICAT'
+*\                       CHANGING gv_subrc.
+*\  IF gv_subrc = 0.
+*}   DELETE
+*{   REPLACE        TSDK905521                                        5
+*\    INSERT ztxx_pr_pricat FROM TABLE gt_pricat.
+  MODIFY ztxx_pr_pricat FROM TABLE gt_pricat.
+*}   REPLACE
+  IF sy-subrc = 0.
+    COMMIT WORK.
+  ELSE.
+*---- Records failed to be inserted
+    ROLLBACK WORK.
+    MESSAGE e100(zplumriver) WITH 'Pricing_Catalog'.
+  ENDIF.
+*{   DELETE         TSDK905521                                        2
+*\  ELSE.
+*\*-- RECORDS FAILED TO BE DELETED
+*\    MESSAGE e101(zplumriver) WITH 'Pricing_Catalog'.
+*\  ENDIF.
+*}   DELETE
+
+ENDFORM.                    " FILL_PRICAT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  FILL_CUSTPRIC
+*&---------------------------------------------------------------------*
+FORM fill_custpric.
+* DESCRIPTION:  Fill Customer Price Catalog HDI table (ZTXX_PR_CUSTPRIC)
+
+* logic for SMU
+
+  CLEAR:  gt_custprice[].
+  CLEAR:  gv_seq,
+          gv_dateinserted.
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+
+*  sort t_custprice.
+*  loop at t_custprice.
+** put all the fields together
+*    clear: gs_custprice.
+*    gv_seq = gv_seq + 1.
+**-- set primary key
+*    GS_CUSTPRICE-MANDT = sy-mandt.
+*    GS_CUSTPRICE-TECHSITE = gs_tablekey-techsite.
+*    GS_CUSTPRICE-VKORG = gv_vkorg.
+*    GS_CUSTPRICE-VTWEG = gv_vtweg.
+*    GS_CUSTPRICE-SPART = gv_spart.
+*    GS_CUSTPRICE-SEQ = gv_seq.
+**-- set HDI fields
+*    GS_CUSTPRICE-ID = gv_dateinserted.
+*    GS_CUSTPRICE-LOCALEID = gc_localeid_EN.      "1033: English
+*    GS_CUSTPRICE-HOSTREF = t_custprice-hostref.
+*    GS_CUSTPRICE-CUSTOMERPRICE = t_custprice-cust_price.
+*    GS_CUSTPRICE-WEBSITE = gs_techsite-pr_website.
+*    GS_CUSTPRICE-SALESORG = t_custprice-vkorg.
+*    GS_CUSTPRICE-SOLDTO = t_custprice-sold_to.
+*    GS_CUSTPRICE-CATALOGX = t_custprice-cat_code.
+*    GS_CUSTPRICE-PRICECODE = t_custprice-price_code.
+*    GS_CUSTPRICE-PRICETYPE = t_custprice-price_type.
+*    GS_CUSTPRICE-BINDINGKEY = t_custprice-binding_key.
+*    if t_custprice-effectivedate is initial.
+*      concatenate sy-datum
+*                  gc_timestart
+*              into  GS_CUSTPRICE-DATEEFFECTIVE.
+*    else.
+*      concatenate t_custprice-effectivedate
+*                  gc_timestart
+*              into  GS_CUSTPRICE-DATEEFFECTIVE.
+*    endif.
+*    GS_CUSTPRICE-PRICEMSRP = t_custprice-msrp.
+*    GS_CUSTPRICE-PRICEWHOLESALE = t_custprice-wholesale.
+*    GS_CUSTPRICE-PRICENET = GS_CUSTPRICE-PRICEWHOLESALE.
+**    GS_CUSTPRICE-PRICENET = t_custprice-net. "set to wholesale.. above
+*    GS_CUSTPRICE-DATEINSERTED = gv_dateinserted.
+*    APPEND GS_CUSTPRICE to GT_CUSTPRICE.
+*  endloop.
+
+* Insert Customer Price records
+  PERFORM delete_db_rows  USING gs_tablekey
+                                'ZTXX_PR_CUSTPRIC'
+                       CHANGING gv_subrc.
+  IF gv_subrc = 0.
+    INSERT ztxx_pr_custpric FROM TABLE gt_custprice.
+    IF sy-subrc = 0.
+      COMMIT WORK.
+    ELSE.
+*---- Records failed to be inserted
+      ROLLBACK WORK.
+      MESSAGE e100(zplumriver) WITH 'Customer_Price'.
+    ENDIF.
+  ELSE.
+*-- RECORDS FAILED TO BE DELETED
+    MESSAGE e101(zplumriver) WITH 'Customer_Price'.
+  ENDIF.
+
+ENDFORM.                    " FILL_CUSTPRIC
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_MATERIAL_LIST
+*&---------------------------------------------------------------------*
+FORM get_material_list .
+* DESCRIPTION:  GET MATERIAL LIST
+
+  SELECT  m~matnr v~vkorg v~vtweg
+          m~mtart m~matkl m~meins
+          m~brgew m~ntgew m~gewei
+          m~volum m~voleh m~spart
+          m~kunnr m~laeng m~breit
+          m~hoehe m~meabm m~prdha m~extwg
+          m~herkl m~j_3apgnr m~j_3akalsv
+          m~j_3akalsm m~j_3agend m~j_3acol m~j_4kcsgr m~j_4kcovsa
+          v~vmsta v~vmstd v~vrkme
+          v~prodh v~mvgr1 v~mvgr2
+          v~mvgr3 v~mvgr4 v~mvgr5
+          v~aumng v~scmng v~schme
+      INTO TABLE gt_mara
+      FROM mara AS m
+      INNER JOIN mvke AS v  ON v~mandt = m~mandt    AND
+                               v~matnr = m~matnr
+      WHERE m~matnr IN s_matnr     AND
+            m~lvorm = space        AND   "NOT DELETED
+            m~spart IN s_spart     AND
+            m~mtart IN s_mtart     AND
+            m~matkl IN s_matkl     AND
+*{   REPLACE        DV2K907927                                        1
+*\            M~PRDHA IN S_PRDHA     AND
+            m~prdha IN s_prdha     AND
+            m~extwg IN s_extwg     AND
+            v~vmsta IN s_mstav     AND
+*}   REPLACE
+            v~mvgr2 IN s_mvgr2     AND
+            v~mvgr3 IN s_mvgr3     AND
+            v~mvgr4 IN s_mvgr4     AND
+            v~vkorg IN s_vkorg     AND
+            v~vtweg IN s_vtweg.
+  IF sy-subrc = 0.
+*{   REPLACE        DV2K907927                                        2
+*\    SORT GT_MARA BY MATNR VKORG VTWEG.
+*\    DELETE ADJACENT DUPLICATES FROM GT_MARA COMPARING MATNR.
+    SORT gt_mara BY matnr vkorg vtweg spart.
+    DELETE ADJACENT DUPLICATES FROM gt_mara COMPARING matnr vkorg vtweg spart.
+*}   REPLACE
+    CLEAR: gt_gendt[].
+*    SELECT * FROM j_3agendrt INTO TABLE gt_gendt FOR ALL ENTRIES IN gt_mara
+*    WHERE j_3agend = gt_mara-j_3agend.
+    SELECT * FROM j_3acolrt INTO TABLE gt_colt FOR ALL ENTRIES IN gt_mara
+    WHERE spras = 'E'
+      AND j_3acol = gt_mara-j_3acol.
+* Getting Gender Description From Product Hierarchy
+    SELECT * FROM t179 INTO TABLE gt_t179 WHERE stufe EQ gc_3.
+    IF NOT gt_t179[] IS INITIAL.
+      SELECT * FROM t179t INTO TABLE gt_t179t FOR ALL ENTRIES IN gt_t179
+      WHERE spras = 'E'
+        AND prodh = gt_t179-prodh.
+    ENDIF.
+  ENDIF.   "SY-SUBRC = 0
+
+ENDFORM.                    " GET_MATERIAL_LIST
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_MATERIAL_DESCRIPTION
+*&---------------------------------------------------------------------*
+FORM get_material_description  USING    us_matnr TYPE matnr
+                                        us_localeid TYPE zplumriver_lid
+                               CHANGING ch_name LIKE gs_style-name.
+* DESCRIPTION:  GET MATERIAL DESCRIPTION
+
+*// LOCAL DECLARATION
+  DATA:  lv_spras TYPE spras.
+
+*// BEGIN PROCESSING
+* GET SAP language key for localeID
+  IF gs_localeid-localeid <> us_localeid.
+    READ TABLE gt_localeid INTO gs_localeid
+                           WITH TABLE KEY localeid = us_localeid.
+    IF sy-subrc <> 0.
+      MESSAGE e398(00) WITH 'LocaleID'
+                            us_localeid
+                            'is NOT supported.'
+                            'Please maintain.'.
+    ENDIF.
+  ENDIF.
+* Get material text
+  CLEAR:  ch_name.
+  SELECT SINGLE maktx
+           FROM makt INTO ch_name
+           WHERE matnr = us_matnr    AND
+                 spras = gs_localeid-spras.
+  IF sy-subrc <> 0     AND
+     gs_localeid-spras <> 'E'.         "not English
+*-- language text not found... try finding English text
+    SELECT SINGLE maktx
+             FROM makt INTO ch_name
+             WHERE matnr = us_matnr    AND
+                   spras = 'E'.              "English
+  ENDIF.   "sy-subrc <> 0...
+
+ENDFORM.                    " GET_MATERIAL_DESCRIPTION
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_PRICING
+*&---------------------------------------------------------------------*
+FORM get_pricing .
+* DESCRIPTION:  GET PRICING CONDITION RECORDS
+
+*// LOCAL DECLARATION
+* WORK AREA FOR PRICING PROCEDURE
+  DATA: BEGIN OF ls_t683,
+          kvewe TYPE t683-kvewe,
+          kappl TYPE t683-kappl,
+          kalsm TYPE t683-kalsm,
+        END OF ls_t683.
+
+* PRICING PROCEDURE STEPS
+  DATA: BEGIN OF ls_t683s,
+          kvewe TYPE t683s-kvewe,
+          kappl TYPE t683s-kappl,
+          kalsm TYPE t683s-kalsm,
+          stunr TYPE t683s-stunr,
+          zaehk TYPE t683s-zaehk,
+          kschl TYPE t683s-kschl,
+          kstat TYPE t683s-kstat,
+        END OF ls_t683s.
+
+  DATA:  lt_t683s LIKE STANDARD TABLE OF ls_t683s
+                  WITH NON-UNIQUE DEFAULT KEY
+                  INITIAL SIZE 40.
+
+* LIST OF RELEVANT CONDITION TYPES
+  DATA: BEGIN OF ls_t68xx,
+          kvewe    TYPE t685-kvewe,
+          kappl    TYPE t685-kappl,   "JOIN FIELD
+          kschl    TYPE t685-kschl,   "JOIN FIELD
+          kozgf    TYPE t685-kozgf,
+          krech    TYPE t685a-krech,
+          kntyp    TYPE t685a-kntyp,
+          kmanu    TYPE t685a-kmanu,
+          koaid    TYPE t685a-koaid,
+          j_3aszco TYPE t685a-j_3aszco,
+          kolnr    TYPE t682i-kolnr,
+          kotabnr  TYPE t682i-kotabnr,
+        END OF ls_t68xx.
+
+  DATA:  lt_t68xx LIKE STANDARD TABLE OF ls_t68xx
+                  WITH NON-UNIQUE KEY kvewe kappl kschl
+                  INITIAL SIZE 10.
+
+* LIST OF ACCESS SEQUENCES
+  DATA: BEGIN OF ls_t682i,
+          kvewe   TYPE t682i-kvewe,
+          kappl   TYPE t682i-kappl,
+          kozgf   TYPE t682i-kozgf,
+          kolnr   TYPE t682i-kolnr,
+          kotabnr TYPE t682i-kotabnr,
+        END OF ls_t682i.
+
+  DATA:  lt_t682i LIKE STANDARD TABLE OF ls_t682i
+                  WITH NON-UNIQUE KEY kvewe kappl kozgf
+                                      kolnr
+                  INITIAL SIZE 10.
+
+  DATA: lv_xland1(1),          "flag:  country field exists
+        lv_xvkorg(1),          "flag:  Sales Organization field exists
+        lv_tabname   TYPE sychar30,
+        lv_dref      TYPE REF TO data.
+
+  DATA:  ls_where TYPE rsdswhere.
+
+  DATA:  lt_where LIKE STANDARD TABLE OF ls_where
+                  WITH NON-UNIQUE DEFAULT KEY
+                  INITIAL SIZE 15.
+
+  DATA: BEGIN OF ls_dd03l,
+          tabname   TYPE dd03l-tabname,
+          fieldname TYPE dd03l-fieldname,
+          position  TYPE dd03l-position,
+          keyflag   TYPE dd03l-keyflag,
+          rollname  TYPE dd03l-rollname,
+          domname   TYPE dd03l-domname,
+          comptype  TYPE dd03l-comptype,
+        END OF ls_dd03l.
+
+  DATA:  lt_dd03l LIKE STANDARD TABLE OF ls_dd03l
+                  WITH NON-UNIQUE DEFAULT KEY
+                  INITIAL SIZE 20.
+
+* KONP data
+  DATA: BEGIN OF ls_konp,
+          knumh    TYPE konp-knumh,
+          kopos    TYPE konp-kopos,
+          kappl    TYPE konp-kappl,
+          kschl    TYPE konp-kschl,
+          krech    TYPE konp-krech,
+          kbetr    TYPE konp-kbetr,
+          konwa    TYPE konp-konwa,
+          kpein    TYPE konp-kpein,
+          kmein    TYPE konp-kmein,
+          kumza    TYPE konp-kumza,
+          kumne    TYPE konp-kumne,
+          meins    TYPE konp-meins,
+          loevm_ko TYPE konp-loevm_ko,
+        END OF ls_konp.
+
+  DATA:  lt_konp LIKE STANDARD TABLE OF ls_konp
+                 WITH NON-UNIQUE KEY knumh kopos
+                 INITIAL SIZE 10.
+
+
+* mapping table
+  DATA:  BEGIN OF ls_fieldmap,
+           source TYPE fieldname,
+           target TYPE fieldname,
+         END OF ls_fieldmap.
+
+  DATA:  lt_fieldmap LIKE STANDARD TABLE OF ls_fieldmap
+                     WITH NON-UNIQUE DEFAULT KEY
+                     INITIAL SIZE 30.
+
+* PriceCode Correction
+  DATA:  lv_pricecode TYPE ztxx_pr_pricecod-pricecode.
+
+  DATA:  BEGIN OF ls_pricecode,
+           currkey   TYPE konp-konwa,
+           land1     TYPE t005-land1,
+           vkorg     TYPE vkorg,
+           pltyp     TYPE pltyp,
+           pricecode TYPE ztxx_pr_pricecod-pricecode,
+         END OF ls_pricecode.
+
+  DATA:  BEGIN OF ls_pricecpy,
+           matnr   TYPE matnr,
+           land1   TYPE t005-land1,
+           vkorg   TYPE vkorg,
+           currkey TYPE konp-konwa,
+           datbi   TYPE kodatbi,
+         END OF ls_pricecpy.
+
+  DATA: lts_pricecpy LIKE TABLE OF ls_pricecpy,
+        wts_pricecpy LIKE ls_pricecpy.
+
+  DATA:  lts_pricecode LIKE SORTED TABLE OF ls_pricecode
+                       WITH NON-UNIQUE KEY currkey land1 vkorg pltyp
+                       INITIAL SIZE 100.
+
+* range tables for Country
+  DATA:  ra_land1 TYPE RANGE OF t005-land1
+                  INITIAL SIZE 20
+                  WITH HEADER LINE.
+
+  DATA:  ra2_land1 TYPE RANGE OF t005-land1
+                  INITIAL SIZE 20
+                  WITH HEADER LINE.
+
+* range tables for Sales Organization
+  DATA:  ra_vkorg TYPE RANGE OF tvko-vkorg
+                  INITIAL SIZE 8
+                  WITH HEADER LINE.
+  DATA:  ra_pltyp  TYPE RANGE OF pltyp INITIAL SIZE 5 WITH HEADER LINE,
+         ra_pltyp2 TYPE RANGE OF pltyp INITIAL SIZE 5 WITH HEADER LINE.
+
+  DATA:  ra2_vkorg TYPE RANGE OF tvko-vkorg
+                  INITIAL SIZE 8
+                  WITH HEADER LINE.
+
+* Field Symbols
+  FIELD-SYMBOLS:  <t68xx>     LIKE ls_t68xx,
+                  <dd03l>     LIKE ls_dd03l,
+                  <pricecode> LIKE ls_pricecode,
+                  <map>       LIKE ls_fieldmap,
+                  <konp>      LIKE ls_konp,
+                  <table>     TYPE ANY TABLE,
+                  <wa>        TYPE any,
+                  <source>    TYPE any,
+                  <target>    TYPE any,
+                  <comp>      TYPE any,
+                  <field>     TYPE any.
+
+  CONSTANTS: lc_a     TYPE char1    VALUE 'A',
+             lc_knumh TYPE sychar30 VALUE 'KNUMH'.
+
+* MACRO DEFINITION
+  DEFINE m_build_where.
+*-- &1: TABLE FIELD NAME
+*-- &2: SELECTION TABLE NAME OR PARAMETER VALUE
+*-- &3: PARAMETER TYPE - (P)ARAMETER; (S)ELECTION TABLE
+    if &3 = 'S'.     "SELECT-OPTIONS
+      if not &2 is initial.
+        clear:  ls_where.
+        concatenate 'AND'
+                     &1
+                    'IN'
+                     &2
+               into ls_where separated by space.
+        append ls_where to lt_where.
+      endif.   "NOT &2[] IS INITIAL
+    endif.                                                  "&3 = 'S'
+  END-OF-DEFINITION.
+
+
+*// BEGIN PROCESSING
+* VALIDATE PRICING PROCEDURE.
+  SELECT SINGLE  kvewe kappl kalsm
+            FROM t683 INTO ls_t683
+            WHERE kvewe = 'A'    AND    "PRICING
+                  kappl = 'V'    AND    "SD
+                  kalsm = p_kalsm.
+  IF sy-subrc = 0.
+    SELECT  kvewe kappl kalsm
+            stunr zaehk kschl
+            kstat
+       FROM t683s INTO TABLE lt_t683s
+       WHERE kvewe = ls_t683-kvewe    AND
+             kappl = ls_t683-kappl    AND
+             kalsm = ls_t683-kalsm    AND
+             kstat IN (' ', 'X')      AND   "NOT STATISTICAL
+*             kschl <> space.                "CONDITION TYPE RELEVANT
+             kschl IN s_kschl.
+  ENDIF.   "SY-SUBRC = 0
+
+* DETERMINE BASIC PRICING TYPES AND ACCESS SEQUENCES
+  IF NOT lt_t683s[] IS INITIAL.
+    SELECT  t~kvewe t~kappl t~kschl
+            t~kozgf a~krech a~kntyp
+            a~kmanu a~koaid a~j_3aszco
+            i~kolnr i~kotabnr
+        INTO TABLE lt_t68xx
+        FROM t685  AS t
+        INNER JOIN t685a  AS a    ON a~mandt = t~mandt   AND
+                                     a~kappl = t~kappl   AND
+                                     a~kschl = t~kschl
+        INNER JOIN t682i  AS i    ON i~kvewe = t~kvewe   AND
+                                     i~kappl = t~kappl   AND
+                                     i~kozgf = t~kozgf
+        FOR ALL ENTRIES IN lt_t683s
+        WHERE t~kvewe = lt_t683s-kvewe    AND
+              t~kappl = lt_t683s-kappl    AND
+              t~kschl = lt_t683s-kschl    AND
+              a~koaid = 'B'               AND     "BASIC PRICES
+              a~kmanu IN ('C','D')        AND
+*              a~kmanu = 'C'              AND
+              a~kntyp IN ('H',' ').
+  ENDIF.   "NOT LT_T683S[] IS INITIAL
+
+* GET CONDITION RECORDS
+  LOOP AT lt_t68xx ASSIGNING <t68xx>.
+    CLEAR: lv_xland1,
+           lv_xvkorg,
+           lv_tabname,
+           ls_where.
+    REFRESH: lt_dd03l,
+             lt_where,
+             lt_fieldmap.
+    CONCATENATE <t68xx>-kvewe
+                <t68xx>-kotabnr
+            INTO lv_tabname.
+    SELECT  tabname fieldname position
+            keyflag rollname domname
+            comptype
+         FROM dd03l INTO TABLE lt_dd03l
+         WHERE tabname = lv_tabname.
+    IF sy-subrc = 0.
+
+**     default to today date
+*      p_vdate = sy-datum.
+
+      SORT lt_dd03l BY position.
+*---- Build first Entry in LT_WHERE table (without AND)
+      CLEAR: ls_where.
+*---- Valid TO date
+*Get all price rows that are in effect or will be in effect in the future - PR6235 - ED1K904403 - Start
+*     ls_where = 'DATBI >= p_vdate'.
+      ls_where = 'DATBI >= sy-datum'.
+*Get all price rows that are in effect or will be in effect in the future - PR6235 - ED1K904403 - End
+      APPEND ls_where TO lt_where.
+*Get all price rows that are in effect or will be in effect in the future - PR6235 - ED1K904403 - Start
+*---- Valid FROM date (2nd entry)
+*      ls_where = 'AND DATAB <= sy-datum'.
+*      append ls_where to lt_where.
+*Get all price rows that are in effect or will be in effect in the future - PR6235 - ED1K904403 - End
+*---- DYNAMICALLY BUILD WHERE CLAUSE (PARTIAL)
+      LOOP AT lt_dd03l ASSIGNING <dd03l>.
+        CASE <dd03l>-rollname.
+*        CASE <dd03l>-fieldname.
+          WHEN 'MATNR'.
+            CLEAR:  ls_fieldmap.
+            ls_fieldmap-source = <dd03l>-fieldname.
+            ls_fieldmap-target = 'MATNR'.
+            APPEND ls_fieldmap TO lt_fieldmap.
+            m_build_where <dd03l>-fieldname 'S_MATNR' 'S'.
+          WHEN 'VKORG'.
+            lv_xvkorg = 'X'.
+            CLEAR:  ls_fieldmap.
+            ls_fieldmap-source = <dd03l>-fieldname.
+            ls_fieldmap-target = 'VKORG'.
+            APPEND ls_fieldmap TO lt_fieldmap.
+            m_build_where <dd03l>-fieldname 'S_VKORG' 'S'.
+          WHEN 'VTWEG'.
+            CLEAR:  ls_fieldmap.
+            ls_fieldmap-source = <dd03l>-fieldname.
+            ls_fieldmap-target = 'VTWEG'.
+            APPEND ls_fieldmap TO lt_fieldmap.
+            m_build_where <dd03l>-fieldname 'S_VTWEG' 'S'.
+          WHEN 'PLTYP'.
+            CLEAR:  ls_fieldmap.
+            ls_fieldmap-source = <dd03l>-fieldname.
+            ls_fieldmap-target = 'PLTYP'.
+            APPEND ls_fieldmap TO lt_fieldmap.
+            m_build_where <dd03l>-fieldname 'S_PLTYP' 'S'.
+          WHEN 'SPART'.
+            CLEAR:  ls_fieldmap.
+            ls_fieldmap-source = <dd03l>-fieldname.
+            ls_fieldmap-target = 'SPART'.
+            APPEND ls_fieldmap TO lt_fieldmap.
+            m_build_where <dd03l>-fieldname 'S_SPART' 'S'.
+          WHEN 'AUART'.
+            m_build_where <dd03l>-fieldname 'S_AUART' 'S'.
+          WHEN 'ALAND' OR 'LAND1' OR 'ZLAND_SOLDTO' OR 'LAND1_GP'.
+            lv_xland1 = 'X'.
+            CLEAR:  ls_fieldmap.
+            ls_fieldmap-source = <dd03l>-fieldname.
+            ls_fieldmap-target = 'LAND1'.
+            APPEND ls_fieldmap TO lt_fieldmap.
+            m_build_where <dd03l>-fieldname 'S_LAND1' 'S'.
+          WHEN 'MTART'.
+            m_build_where <dd03l>-fieldname 'S_MTART' 'S'.
+          WHEN 'MATKL'.
+            m_build_where <dd03l>-fieldname 'S_MATKL' 'S'.
+          WHEN 'PRDHA' OR 'PRODH' OR 'PRODHS'.
+            m_build_where <dd03l>-fieldname 'S_PRDHA' 'S'.
+          WHEN 'MVGR2'.
+            m_build_where <dd03l>-fieldname 'S_MVGR2' 'S'.
+          WHEN 'MVGR3'.
+            m_build_where <dd03l>-fieldname 'S_MVGR3' 'S'.
+          WHEN 'MVGR4'.
+            m_build_where <dd03l>-fieldname 'S_MVGR4' 'S'.
+          WHEN 'KUNNR' OR 'KUNAG'.
+            CLEAR:  ls_fieldmap.
+            ls_fieldmap-source = <dd03l>-fieldname.
+            ls_fieldmap-target = 'KUNNR'.
+            APPEND ls_fieldmap TO lt_fieldmap.
+          WHEN 'J_3ASIZE'.
+            CLEAR:  ls_fieldmap.
+            ls_fieldmap-source = <dd03l>-fieldname.
+            ls_fieldmap-target = 'SIZE'.
+            APPEND ls_fieldmap TO lt_fieldmap.
+          WHEN 'EXTWG'.
+            CLEAR:  ls_fieldmap.
+            ls_fieldmap-source = <dd03l>-fieldname.
+            ls_fieldmap-target = 'EXTWG'.
+            APPEND ls_fieldmap TO lt_fieldmap.
+            m_build_where <dd03l>-fieldname 'S_EXTWG' 'S'.
+          WHEN OTHERS.
+            CONTINUE.
+        ENDCASE.   "<DD03L>-ROLLNAME
+      ENDLOOP.   "AT LT_DD03L ASSIGNING <DD03L>
+*---- Create reference table
+      CREATE DATA lv_dref TYPE STANDARD TABLE OF (lv_tabname).
+*---- Assign reference table to field-symbol
+      ASSIGN lv_dref->* TO <table>.
+*---- GET CONDITIONS FROM TABLE Annn
+      SELECT * INTO TABLE <table>
+          FROM (lv_tabname)
+          WHERE kappl = <t68xx>-kappl   AND
+                kschl = <t68xx>-kschl   AND
+                (lt_where).
+      IF sy-subrc = 0.
+        LOOP AT <table> ASSIGNING <wa>.
+          CLEAR:  gs_pricedata.
+          REFRESH:  lt_konp.
+          gs_pricedata-sortlevel = <t68xx>-kolnr.
+          gs_pricedata-kotabnr = <t68xx>-kotabnr.
+          LOOP AT lt_fieldmap ASSIGNING <map>.
+            ASSIGN COMPONENT <map>-source OF STRUCTURE <wa>
+                                          TO <source>.
+            ASSIGN COMPONENT <map>-target OF STRUCTURE gs_pricedata
+                                          TO <target>.
+            WRITE: <source> TO <target>.
+          ENDLOOP.   "AT LT_FIELDMAP ASSIGNING <MAP>
+*-------- DATBI
+          ASSIGN COMPONENT 'DATBI' OF STRUCTURE <wa> TO <source>.
+          IF sy-subrc = 0.
+            gs_pricedata-datbi = <source>.
+          ENDIF.
+*-------- DATAB
+          ASSIGN COMPONENT 'DATAB' OF STRUCTURE <wa> TO <source>.
+          IF sy-subrc = 0.
+            gs_pricedata-datab = <source>.
+          ENDIF.
+*-------- KNUMH
+          ASSIGN COMPONENT 'KNUMH' OF STRUCTURE <wa> TO <source>.
+          IF sy-subrc = 0.
+            gs_pricedata-knumh = <source>.
+            SELECT knumh kopos kappl
+                   kschl krech kbetr
+                   konwa kpein kmein
+                   kumza kumne meins
+                   loevm_ko
+                FROM konp INTO TABLE lt_konp
+                WHERE knumh = gs_pricedata-knumh   AND
+                      loevm_ko = space.
+          ENDIF.   "sy-subrc = 0  [ON assign component 'KNUMH']
+          LOOP AT lt_konp ASSIGNING <konp>.
+            MOVE-CORRESPONDING <konp> TO gs_pricedata.
+            CONCATENATE gs_pricedata-konwa
+*                        gs_pricedata-land1
+                        gs_pricedata-vkorg
+                        gs_pricedata-pltyp
+                     INTO gs_pricedata-pricecode SEPARATED BY '+'.
+            APPEND gs_pricedata TO gt_pricedata2.
+          ENDLOOP.   "AT LT_KONP assigning <KONP>
+        ENDLOOP.   "at <table> assigning <wa>
+      ENDIF.   "sy-subrc = 0  [ON select...into table <table>]
+    ENDIF.   "SY-SUBRC = 0
+  ENDLOOP.   "AT LT_T68XX ASSIGNING <T68XX>
+
+*separate country specific prices
+  gt_pricedatacpy[] = gt_pricedata2[].
+  DELETE gt_pricedatacpy[] WHERE land1 = space. "country specific
+* Complete gt_PriceData2 table for Pricecode
+  IF NOT gt_pricedata2[] IS INITIAL.
+    SELECT pricecode
+        FROM ztxx_pr_pricecod
+        INTO lv_pricecode
+        WHERE techsite = gs_techsite-website   AND
+            ( vkorg IN s_vkorg   OR
+              vkorg = space ).
+      CLEAR:  ls_pricecode.
+      SPLIT lv_pricecode AT '+'
+                         INTO ls_pricecode-currkey
+*                              ls_pricecode-land1
+                              ls_pricecode-vkorg
+                              ls_pricecode-pltyp.
+*      IF ls_pricecode-land1 IN s_land1     AND
+      IF   ls_pricecode-vkorg IN s_vkorg AND
+           ls_pricecode-pltyp IN s_pltyp.
+        ls_pricecode-pricecode = lv_pricecode.
+        INSERT ls_pricecode INTO TABLE lts_pricecode.
+*        IF NOT ls_pricecode-land1 IS INITIAL.
+**-------- create range table for country
+*          CLEAR:  ra_land1.
+*          ra_land1-sign = 'I'.
+*          ra_land1-option = 'EQ'.
+*          ra_land1-low = ls_pricecode-land1.
+*          COLLECT ra_land1.
+*        ENDIF.   "not ls_pricecode-land1 is initial
+        IF NOT ls_pricecode-vkorg IS INITIAL.
+*-------- create range table for sales organization
+          CLEAR:  ra_vkorg.
+          ra_vkorg-sign = 'I'.
+          ra_vkorg-option = 'EQ'.
+          ra_vkorg-low = ls_pricecode-vkorg.
+          COLLECT ra_vkorg.
+        ENDIF.   "not ls_pricecode-vkorg is initial
+        IF NOT ls_pricecode-pltyp IS INITIAL.
+          CLEAR ra_pltyp.
+          ra_pltyp-sign   = 'I'.
+          ra_pltyp-option = 'EQ'.
+          ra_pltyp-low    = ls_pricecode-pltyp.
+          COLLECT ra_pltyp.
+        ENDIF.
+      ENDIF.
+    ENDSELECT.   "from ZTXX_PR_PRICECOD...
+    IF NOT lts_pricecode[] IS INITIAL.
+      DELETE ADJACENT DUPLICATES FROM lts_pricecode COMPARING ALL FIELDS.
+      LOOP AT gt_pricedata2 ASSIGNING <pricedata>.
+        CLEAR:  ra2_land1,
+                ra2_vkorg,
+                ra_pltyp2,
+                ra2_land1[],
+                ra_pltyp2[],
+                ra2_vkorg[].
+
+*------ selection criteria for Sales Organization
+        IF <pricedata>-vkorg IS INITIAL.
+          ra2_vkorg[] = ra_vkorg[].
+        ELSE.
+          ra2_vkorg-sign = 'I'.
+          ra2_vkorg-option = 'EQ'.
+          ra2_vkorg-low = <pricedata>-vkorg.
+          APPEND ra2_vkorg.
+        ENDIF.   "<PriceData>-VKORG is initial
+*------ selection criteria for Country Code
+*        IF <pricedata>-land1 IS INITIAL.
+*          ra2_land1[] = ra_land1[].
+*        ELSE.
+*          ra2_land1-sign = 'I'.
+*          ra2_land1-option = 'EQ'.
+*          ra2_land1-low = <pricedata>-land1.
+*          APPEND ra2_land1.
+*        ENDIF.   "<PriceData>-LAND1 is initial
+*        IF <pricedata>-pltyp IS INITIAL.
+*          ra_pltyp2[] = ra_pltyp[].
+*        ELSE.
+*          ra_pltyp2-sign   = 'I'.
+*          ra_pltyp2-option = 'EQ'.
+*          ra_pltyp2-low    = <pricedata>-pltyp.
+*          APPEND ra_pltyp2.
+*        ENDIF.
+        LOOP AT lts_pricecode ASSIGNING <pricecode>
+                              WHERE currkey = <pricedata>-konwa    AND
+*                                    land1 IN ra2_land1             AND
+                                    vkorg IN ra2_vkorg            AND
+                                    pltyp EQ <pricedata>-pltyp.
+
+
+**          READ TABLE lts_pricecpy into wts_pricecpy
+**            with key matnr = <PriceData>-matnr
+**                     land1 = <PriceCode>-LAND1
+**                     vkorg = <PriceCode>-VKORG
+**                     Currkey = <PriceData>-KONWA
+**                     datbi   = <PriceData>-datbi.  "ED1K904403 PR6235
+**          IF sy-subrc = 0.
+**            CONTINUE.
+**          else.
+**           CLEAR wts_pricecpy.
+**           wts_pricecpy-matnr = <PriceData>-matnr.
+**           wts_pricecpy-land1 = <PriceCode>-LAND1.
+**           wts_pricecpy-vkorg = <PriceCode>-vkorg.
+**           wts_pricecpy-Currkey = <PriceData>-KONWA.
+**           wts_pricecpy-datbi = <PriceData>-datbi.  "ED1K904403 PR6235
+**           APPEND wts_pricecpy to lts_pricecpy.
+**          endif.
+
+*         If country specific values are there, then skip them now.
+          READ TABLE gt_pricedatacpy ASSIGNING <pricedatacpy>
+                    WITH KEY matnr = <pricedata>-matnr
+                             konwa = <pricecode>-currkey
+*                             land1 = <pricecode>-land1
+                             vkorg = <pricecode>-vkorg
+                             pltyp = <pricecode>-pltyp.
+          IF sy-subrc = 0.
+            CONTINUE.
+          ENDIF.
+
+          CLEAR:  gs_pricedata.
+          gs_pricedata = <pricedata>.
+          gs_pricedata-vkorg = <pricecode>-vkorg.
+*          gs_pricedata-land1 = <pricecode>-land1.
+          gs_pricedata-pltyp = <pricedata>-pltyp.
+          gs_pricedata-pricecode = <pricecode>-pricecode.
+          APPEND gs_pricedata TO gt_pricedata.
+        ENDLOOP.   "at lts_pricecode assigning <pricecode>
+
+      ENDLOOP.   "at gt_PriceData2 assigning <PriceData>
+      FREE:  gt_pricedata2.
+    ENDIF.   "not lts_pricecode[] is initial
+  ENDIF.   "not gt_PriceData2[] is initial
+
+* Country specific values are popuated now,
+  LOOP AT gt_pricedatacpy ASSIGNING <pricedatacpy>.
+
+    CLEAR: gs_pricedata.
+    gs_pricedata = <pricedatacpy>.
+    APPEND gs_pricedata TO gt_pricedata.
+  ENDLOOP.
+*Remove any condition that are invalid - start
+* loop at gt_PriceData into wa_pricedata.
+*   if wa_pricedata-datbi < sy-datum.
+*     delete gt_pricedata.
+*   endif.
+* endloop.
+*End
+***Commented below since all the prices past, current and future need to be send
+**** Final preparations of GT_PRICEDATA before further processing
+***  Sort GT_PRICEDATA by matnr size kunnr
+***                       pricecode sortlevel.
+***  delete adjacent duplicates from GT_PRICEDATA
+***                             comparing matnr size kunnr
+***                                       pricecode.
+
+ENDFORM.                    " GET_PRICING
+
+
+*&---------------------------------------------------------------------*
+*&      Form  CONVERSION_EXIT_ALPHA_INPUT
+*&---------------------------------------------------------------------*
+FORM conversion_exit_alpha_input  USING    us_input  TYPE c
+                                 CHANGING ch_output TYPE c.
+* Convert field to internal format for CONVERSION_EXIT_ALPHA...
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = us_input
+    IMPORTING
+      output = ch_output.
+
+ENDFORM.                    " CONVERSION_EXIT_ALPHA_INPUT
+
+*Text elements
+*----------------------------------------------------------
+* 001 Selection Criteria
+* B00 Website Selection Criteria
+* BK3 Additional Pricing Criteria
+* BKC Target Catalogs
+* S01 Variant Status
+
+
+*Selection texts
+*----------------------------------------------------------
+* CH_VAR         Enabled
+* P_KALSM         Pricing Procedure
+* P_TSITE         Technical Website Name
+* P_VDATE         Valid On (or after)
+* S_AUART         Sales Document Type
+* S_CATLOG         Catalog
+* S_EXTWG         External Material Group
+* S_KSCHL         Pricing Condition Type
+* S_LAND1         Country Key
+* S_MATKL         Material Group
+* S_MATNR         Material
+* S_MSTAV         Material Status
+* S_MTART         Material Type
+* S_MVGR2         Material group 2
+* S_MVGR3         Material group 3
+* S_MVGR4         Material group 4
+* S_PLTYP         Price list type
+* S_PRDHA         Product hierarchy
+* S_SPART         Division
+* S_VKORG         Sales Organization
+* S_VTWEG         Distribution Channel
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: 00
+*398   & & & &
+*
+* Message class: ZPLUMRIVER
+*007   Processing Completed.
+*011   Technical site &1 is not a valid entry.
+*100   No Update.  Insertion of &1 records failed.
+*101   No Update.  Deletion of &1 records failed.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

@@ -1,0 +1,127 @@
+*----------------------------------------------------------------------*
+***INCLUDE LZXXPR_XMLF01 .
+*----------------------------------------------------------------------*
+
+INCLUDE ZIXXPR_SUBS01.
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_TABLENAME
+*&---------------------------------------------------------------------*
+FORM GET_TABLENAME TABLES   TA_RETURN    STRUCTURE  BAPIRET1
+                   USING    US_TABLECODE TYPE  ZPLUMRIVER_HDITABNAME
+                   CHANGING CH_TABNAME   TYPE TABNAME.
+
+  DATA:  LV_TABLECODE LIKE US_TABLECODE.
+
+  LV_TABLECODE = US_TABLECODE.
+  TRANSLATE LV_TABLECODE TO UPPER CASE.
+
+  CLEAR:  CH_TABNAME.
+  SELECT SINGLE TABNAME
+            INTO CH_TABNAME
+            FROM ZTXX_PR_FILEXFER
+            WHERE CODE = LV_TABLECODE.
+  IF SY-SUBRC <> 0.
+*-- RETURN ERROR MESSAGE THAT TABLE CODE NOT FOUND
+    gv_msgid = 'ZPLUMRIVER'.
+    write: US_TABLECODE to gv_msgv1 left-justified.
+    perform SET_RETURN_MESSAGE using 'E' gv_msgid '014'
+                                     gv_msgv1 space space space
+                          changing   gs_ret1.
+    append gs_ret1 to ta_return.
+  ENDIF.
+
+ENDFORM.                    " GET_TABLENAME
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_SAP_LONGTEXT
+*&---------------------------------------------------------------------*
+FORM GET_SAP_LONGTEXT    USING US_KEY TYPE C
+                      CHANGING CH_LONGTEXT TYPE STRING.
+* Useage:  Retrieve the Stored long text.
+
+*//  Local Declarations
+  DATA: BEGIN OF ls_textkey,
+          tdobject TYPE stxh-tdobject,
+          tdname TYPE stxh-tdname,
+          tdid TYPE stxh-tdid,
+          tdspras TYPE stxh-tdspras,
+        END OF ls_textkey.
+
+  DATA:  LS_TLINE type TLINE.
+
+  DATA:  LT_TLINE like standard table of ls_tline
+                  with non-unique default key
+                  initial size 10.
+
+  DATA:  LV_LEN TYPE I,            "NUMBER OF BLANK SPACES AT FIELD END
+         LV_SPACER(132),           "BLANK FIELD
+         LV_STRING TYPE STRING.
+
+  field-symbols:  <line> like ls_tline.
+
+*// BEGIN PROCESSING
+  clear: ls_textkey,
+         LV_STRING.
+
+  ls_textkey = US_KEY.
+  if ls_textkey-tdobject = 'ZPLUMRIVER'.
+*-- KEY EXISTS, READ STORED TEXT
+    CALL FUNCTION 'READ_TEXT'
+      EXPORTING
+        ID                            =  LS_TEXTKEY-TDID
+        LANGUAGE                      =  LS_TEXTKEY-TDSPRAS
+        NAME                          =  LS_TEXTKEY-TDNAME
+        OBJECT                        =  LS_TEXTKEY-TDOBJECT
+      TABLES
+        LINES                         =  LT_TLINE[]
+      EXCEPTIONS
+        ID                            = 1
+        LANGUAGE                      = 2
+        NAME                          = 3
+        NOT_FOUND                     = 4
+        OBJECT                        = 5
+        REFERENCE_CHECK               = 6
+        WRONG_ACCESS_TO_ARCHIVE       = 7
+        OTHERS                        = 8.
+    IF SY-SUBRC = 0.
+*---- Build text string
+      clear: LV_string.
+      loop at LT_TLINE into LS_TLINE.
+        if sy-tabix = 1.
+          LV_string = LS_TLINE-TDLINE.
+        else.
+          if lv_len = 0.
+            concatenate LV_string
+                        LS_TLINE-TDLINE
+                   into Lv_string.
+          else.
+            concatenate LV_string
+                        LS_TLINE-TDLINE
+                   into LV_string separated by lv_spacer(lv_len).
+          endif.   "lv_len = 0
+        endif.   "sy-tabix = 1
+*------ DETERMINE NUMBER OF BLANK SPACES AT END OF TDLINE FIELD
+        lv_len = 132 - strlen( LS_TLINE-TDLINE ).
+      endloop.   "at LT_TLINE into LS_TLINE
+      IF NOT LV_STRING IS INITIAL.
+*------ OVERWRITE Long TEXT KEY VALUE WITH ACTUAL TEXT
+        CH_LONGTEXT = LV_STRING.
+      ELSE.
+*------ THE TEXT MODULE IS BLANK
+        CLEAR:  CH_LONGTEXT.
+      ENDIF.
+    ELSE.
+*     MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*             WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+    ENDIF.   "SY-SUBRC = 0  [ON READ_TEXT...]
+  ELSE.
+*-- Key field MAY CONTAIN ACTUAL TEXT
+    ch_longtext = us_key.
+  ENDIF.   "ls_textkey-tdobject = 'ZPLUMRIVER'
+
+ENDFORM.                    " GET_SAP_LONGTEXT
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

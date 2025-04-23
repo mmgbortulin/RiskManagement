@@ -1,0 +1,2204 @@
+REPORT zrxxpr_plm01 NO STANDARD PAGE HEADING
+                    MESSAGE-ID zplumriver.
+************************************************************************
+* Program     : ZRXXPR_PLM01 - Customer Master HDI Extractions         *
+* Programmer  : Steve LeCours (Clientis-S3G)                           *
+* Date        : July 10, 2011                                          *
+************************************************************************
+* DESCRIPTION:  Extract SAP Customer Master related information and
+*               populate the associated HDI tables.
+*
+*-----------------------------------------------------------------------
+*Modification log:
+* Change #         Date               By whom
+* Description
+*-----------------------------------------------------------------------
+* $1               11/14/2011         Ravi B
+* Catalogs not referenced, so no need to get catalog data
+* ----------------------------------------------------------------------
+
+
+*-----------------------------------------------------------------------
+************************************************************************
+
+************************************************************************
+*****************    GLOBAL DECLARATIONS    ****************************
+************************************************************************
+* TYPES
+TYPE-POOLS:  szadr.
+
+TABLES: kna1,                "General Data in Customer Master
+        knvv,                "Customer Master Sales Data
+        knkk,                "Customer master credit management
+        knvp,                "Customer Master Partner Functions
+        tvtyt,               "Packaging Material Types desc
+        ztxx_pr_kode,        "PlumRiver:  Code Master
+        ztxx_pr_kodes.       "PlumRiver:  CODES  Master
+
+*internal tables.
+TYPES: BEGIN OF t_key,
+         techsite TYPE zplumriver_website_technical,
+         vkorg    TYPE vkorg,
+         vtweg    TYPE vtweg,
+         spart    TYPE spart,
+         seq      TYPE num10,
+       END OF t_key,
+       BEGIN OF t_cust,
+         kunnr TYPE kunnr,
+       END OF t_cust,
+
+       BEGIN OF t_knb1,
+         kunnr TYPE kunnr,
+         zterm TYPE dzterm,
+       END OF t_knb1.
+
+DATA: BEGIN OF gt_tvtyt OCCURS 0.
+        INCLUDE STRUCTURE tvtyt.
+DATA: END OF gt_tvtyt.
+
+* Customer master credit management
+DATA: BEGIN OF gs_knkk,
+        kunnr TYPE knkk-kunnr,
+        kkber TYPE knkk-kkber,
+        klimk TYPE knkk-klimk,
+        ctlpc TYPE knkk-ctlpc,
+        crblb TYPE knkk-crblb,
+      END OF gs_knkk.
+
+DATA:  gt_knkk LIKE STANDARD TABLE OF gs_knkk
+               WITH NON-UNIQUE KEY kunnr kkber
+               INITIAL SIZE 0.
+
+* Techical Website
+DATA: BEGIN OF gs_techsite,
+        website    TYPE ztxx_pr_website-website,
+        pr_website TYPE ztxx_pr_website-pr_website,
+        url        TYPE ztxx_pr_website-url,
+      END OF gs_techsite.
+
+DATA: gs_tablekey TYPE zsxx_pr_tablekey.
+
+* sold-to / ship-to structure key
+DATA:  BEGIN OF gs_soldtoshipto,
+         kunag TYPE kunnr,                 "soldto
+         kunwe TYPE kunnr,                 "shipto
+       END OF gs_soldtoshipto.
+
+* table update work areas
+DATA: gs_soldto    TYPE ztxx_pr_soldto,
+      gs_shipto    TYPE ztxx_pr_shipto,
+      gs_custcat   TYPE ztxx_pr_custcat,
+      gs_pricecode TYPE ztxx_pr_pricecod.
+*        GS_BILLTO TYPE ZTXX_PR_BILLTO.
+
+
+* work area and table for persistent storage of customer catalog info
+DATA:  BEGIN OF gs_custcatfile,
+         kunnr          TYPE knvv-kunnr,
+         catalogx       TYPE zplumriver_catalog,
+         date_effective TYPE zplumriver_dateeffective,
+         date_expire    TYPE zplumriver_dateexpiration,
+         default(1),
+       END OF gs_custcatfile.
+
+DATA:  gt_custcatfile LIKE STANDARD TABLE OF gs_custcatfile
+                      WITH NON-UNIQUE KEY kunnr catalogx
+                      INITIAL SIZE 0.
+
+* internal tables
+* SOLD-TO
+DATA: gt_soldto LIKE STANDARD TABLE OF gs_soldto
+                    WITH NON-UNIQUE KEY mandt techsite vkorg
+                                        vtweg spart seq
+                    INITIAL SIZE 0.
+
+* SHIP-TO
+DATA: gt_shipto LIKE STANDARD TABLE OF gs_shipto
+                   WITH NON-UNIQUE KEY mandt techsite vkorg
+                                       vtweg spart seq
+                   INITIAL SIZE 0.
+
+* CUSTOMER_CATALOG
+DATA: gt_custcat LIKE STANDARD TABLE OF gs_custcat
+                   WITH NON-UNIQUE KEY mandt techsite vkorg
+                                       vtweg spart seq
+                   INITIAL SIZE 0.
+
+* CUSTOMER_CATALOG
+DATA: gt_pricecode LIKE STANDARD TABLE OF gs_pricecode
+                   WITH NON-UNIQUE KEY mandt techsite vkorg
+                                       vtweg spart seq
+                   INITIAL SIZE 5.
+
+
+** BILL-TO
+*  DATA: GT_BILLTO like standard table of GS_BILLTO
+*                     with non-unique key MANDT TECHSITE VKORG
+*                                         VTWEG SPART SEQ
+*                     initial size 0.
+
+* CATALOG
+DATA:  gs_katalog TYPE ztxx_pr_katalog.
+
+DATA:  gt_katalog LIKE STANDARD TABLE OF gs_katalog
+                  WITH NON-UNIQUE KEY  mandt techsite catalogx
+                                       localeid
+                  INITIAL SIZE 10.
+
+* PriceCode Collector
+DATA:  BEGIN OF gs_pricodes,
+         vkorg     TYPE vkorg,
+*{   INSERT         DV2K907927                                        1
+         vtweg     TYPE vtweg,
+         spart     TYPE spart,
+*}   INSERT
+         pricecode TYPE ztxx_pr_pricecod-pricecode,
+       END OF gs_pricodes.
+
+DATA:  gt_pricodes LIKE STANDARD TABLE OF gs_pricodes
+                   WITH NON-UNIQUE DEFAULT KEY
+                   INITIAL SIZE 50.
+
+* Unique Customer list (KNA1)
+DATA: BEGIN OF gs_kna1,
+        kunnr      TYPE kna1-kunnr,
+        adrnr      TYPE kna1-adrnr,
+        aufsd      TYPE kna1-aufsd,
+        ktokd      TYPE kna1-ktokd,
+        loevm      TYPE loevm_x,
+        kdkg1      TYPE kna1-kdkg1,
+        kdkg2      TYPE kna1-kdkg2,
+        kdkg3      TYPE kna1-kdkg3,
+        kdkg4      TYPE kna1-kdkg4,
+        kdkg5      TYPE kna1-kdkg5,
+        j_3astcu   TYPE kna1-j_3astcu,
+        j_3adccu   TYPE kna1-j_3adccu,
+        name       TYPE ztxx_pr_soldto-companyname,
+        address1   TYPE ztxx_pr_soldto-address1,
+        address2   TYPE ztxx_pr_soldto-address2,
+        address3   TYPE ztxx_pr_soldto-address3,
+        city       TYPE ztxx_pr_soldto-city,
+        region     TYPE ztxx_pr_soldto-stateprovince,
+        postalcode TYPE ztxx_pr_soldto-postalcode,
+        country    TYPE ztxx_pr_soldto-country,
+        phone      TYPE ztxx_pr_soldto-phone,
+        fax        TYPE ztxx_pr_soldto-fax,
+        url        TYPE ztxx_pr_soldto-url,
+        email      TYPE ztxx_pr_soldto-email,
+      END OF gs_kna1.
+
+DATA:  gth_kna1 LIKE HASHED TABLE OF gs_kna1
+               WITH UNIQUE KEY kunnr
+               INITIAL SIZE 0.
+
+* Main Customer List (Sales Area)
+DATA: BEGIN OF gs_knvv,
+        kunnr      TYPE knvv-kunnr,
+        vkorg      TYPE knvv-vkorg,
+        vtweg      TYPE knvv-vtweg,
+        spart      TYPE knvv-spart,
+        loevm      TYPE knvv-loevm,
+        aufsd      TYPE knvv-aufsd,
+        kalks      TYPE knvv-kalks,
+        kdgrp      TYPE knvv-kdgrp,
+        bzirk      TYPE knvv-bzirk,
+        konda      TYPE knvv-konda,
+*{   INSERT         DV2K907927                                        4
+        pltyp      TYPE pltyp,
+*}   INSERT
+        lifsd      TYPE knvv-lifsd,
+        autlf      TYPE knvv-autlf,
+        lprio      TYPE knvv-lprio,
+*{   INSERT         TSDK905521                                        8
+        vsbed      TYPE vsbed,
+*}   INSERT
+        faksd      TYPE knvv-faksd,
+        waers      TYPE knvv-waers,
+        ktgrd      TYPE knvv-ktgrd,
+        zterm      TYPE knvv-zterm,
+        vkgrp      TYPE knvv-vkgrp,
+        vkbur      TYPE knvv-vkbur,
+        kvgr1      TYPE knvv-kvgr1,
+        kvgr2      TYPE knvv-kvgr2,
+        kvgr3      TYPE knvv-kvgr3,
+        kvgr4      TYPE knvv-kvgr4,
+        kvgr5      TYPE knvv-kvgr5,
+        kkber      TYPE knvv-kkber,
+        j_3akvgr6  TYPE knvv-j_3akvgr6,
+        j_3akvgr7  TYPE knvv-j_3akvgr7,
+        j_3akvgr8  TYPE knvv-j_3akvgr8,
+        j_3akvgr9  TYPE knvv-j_3akvgr9,
+        j_3akvgr10 TYPE knvv-j_3akvgr10,
+      END OF gs_knvv.
+
+DATA:  gt_knvv LIKE STANDARD TABLE OF gs_knvv
+               WITH NON-UNIQUE KEY kunnr vkorg vtweg
+                                   spart
+               INITIAL SIZE 0.
+
+* Partner table
+DATA: BEGIN OF gs_knvp,
+        kunnr TYPE knvp-kunnr,
+        vkorg TYPE knvp-vkorg,
+        vtweg TYPE knvp-vtweg,
+        spart TYPE knvp-spart,
+        parvw TYPE knvp-parvw,
+        parza TYPE knvp-parza,
+        kunn2 TYPE knvp-kunn2,
+      END OF gs_knvp.
+
+DATA:  gt_knvp LIKE STANDARD TABLE OF gs_knvp
+               WITH NON-UNIQUE KEY kunnr vkorg vtweg
+                                   spart parvw parza
+               INITIAL SIZE 0.
+
+* LIST OF SOLDTO CUSTOMERS
+DATA: BEGIN OF gs_soldtolist,
+        kunnr TYPE knvp-kunnr,
+        vkorg TYPE knvp-vkorg,
+        vtweg TYPE knvp-vtweg,
+        spart TYPE knvp-spart,
+        parvw TYPE knvp-parvw,
+      END OF gs_soldtolist.
+
+DATA:  gt_soldtolist LIKE STANDARD TABLE OF gs_soldtolist
+                     WITH NON-UNIQUE DEFAULT KEY
+                     INITIAL SIZE 0.
+
+* BillTo Partner List
+DATA:  gs_billtolist LIKE gs_soldtolist.
+
+DATA:  gt_billtolist LIKE STANDARD TABLE OF gs_billtolist
+                     WITH NON-UNIQUE DEFAULT KEY
+                     INITIAL SIZE 0.
+
+* Sales Organization
+DATA: BEGIN OF gs_tvko,
+        vkorg TYPE tvko-vkorg,
+        bukrs TYPE tvko-bukrs,
+        adrnr TYPE tvko-adrnr,
+      END OF gs_tvko.
+
+DATA:  gt_tvko LIKE STANDARD TABLE OF gs_tvko
+               WITH NON-UNIQUE KEY vkorg
+               INITIAL SIZE 5.
+
+* Distribution Channel
+DATA: BEGIN OF gs_tvtw,
+        vtweg TYPE tvtw-vtweg,
+      END OF gs_tvtw.
+
+DATA:  gt_tvtw LIKE STANDARD TABLE OF gs_tvtw
+               WITH NON-UNIQUE KEY vtweg
+               INITIAL SIZE 5.
+*{   INSERT         DV2K911713                                        5
+DATA: it_key TYPE TABLE OF t_key,
+      wa_key TYPE t_key.
+*}   INSERT
+
+* Division
+DATA: BEGIN OF gs_tspa,
+        spart TYPE tspa-spart,
+      END OF gs_tspa.
+
+DATA:  gt_tspa LIKE STANDARD TABLE OF gs_tspa
+               WITH NON-UNIQUE KEY spart
+               INITIAL SIZE 5.
+
+* CODE
+DATA: gs_kode TYPE ztxx_pr_kode.
+
+DATA: gt_kode LIKE STANDARD TABLE OF gs_kode
+              WITH NON-UNIQUE KEY mandt techsite salesorg
+                                  division keyword code
+                                  localeid qualf
+              INITIAL SIZE 0.
+
+* CODES
+DATA:  gs_kodes TYPE ztxx_pr_kodes.
+
+DATA:  gt_kodes LIKE STANDARD TABLE OF gs_kodes
+                WITH NON-UNIQUE KEY  mandt techsite salesorg
+                                     division keyword code
+                                     codes qualf localeid
+                INITIAL SIZE 0.
+
+* table for supporting SalesRep CODE Row creation
+DATA:  BEGIN OF gs_repcode,
+         kunag            TYPE kunag,
+         kunwe            TYPE kunwe,
+         soldtoshipto(30),
+       END OF gs_repcode.
+
+DATA:  gts_repcode LIKE SORTED TABLE OF gs_repcode
+                   WITH UNIQUE KEY kunag kunwe
+                   INITIAL SIZE 0.
+
+DATA: gt_cust TYPE TABLE OF t_cust.
+DATA: gt_knb1 TYPE TABLE OF t_knb1,
+      gs_knb1 TYPE t_knb1.
+* fields
+DATA:  gv_delimiter        TYPE string,
+       gv_vkorg            TYPE vkorg,
+       gv_vtweg            TYPE vtweg,
+       gv_spart            TYPE spart,
+       gv_seq              TYPE num10,
+       gv_date             TYPE sydatum,
+       gv_time             TYPE syuzeit,
+       gv_matnr            TYPE matnr,
+       gv_kunnr            TYPE kunnr,
+       gv_soldto           TYPE kunnr,
+       gv_shipto           TYPE kunnr,
+       gv_soldtoshipto(20),           "sold-to/ship-to relationship
+       gv_dateinserted     TYPE zplumriver_dateinserted,
+       gv_subrc            TYPE sysubrc,
+       gv_tabix            TYPE sytabix.
+
+CONSTANTS:  gc_null          TYPE x VALUE '00',
+            gc_on(1)         TYPE n VALUE '1',
+            gc_off(1)        TYPE n VALUE '0',
+            gc_localeid_en   TYPE zplumriver_lid VALUE '1033', "ENGLISH
+            gc_wholesale(10) VALUE 'Wholesale',
+            gc_memoryid      TYPE indx-srtfd VALUE 'ZXXPR_CUSTCAT',
+            gc_timestart     TYPE syuzeit VALUE '000000',  "start of day
+            gc_timefinish    TYPE syuzeit VALUE '235959'. "end of day
+
+FIELD-SYMBOLS:  <knvp>       LIKE gs_knvp,
+                <knvv>       LIKE gs_knvv,
+                <kna1>       LIKE gs_kna1,
+                <knkk>       LIKE gs_knkk,
+                <repcode>    LIKE gs_repcode,
+                <pricodes>   LIKE gs_pricodes,
+                <soldtolist> LIKE gs_soldtolist,
+                <soldto>     LIKE gs_soldto,
+                <shipto>     LIKE gs_shipto,
+                <pricecode>  LIKE gs_pricecode,
+                <custcat>    LIKE gs_custcat,
+                <katalog>    LIKE gs_katalog.
+
+
+
+************************************************************************
+*********************   SELECTION SCREEN   *****************************
+************************************************************************
+SELECTION-SCREEN BEGIN OF BLOCK blk0 WITH FRAME TITLE text-b00.
+PARAMETERS:  p_tsite TYPE ztxx_pr_website-website
+                     MATCHCODE OBJECT zxpr_sh_website
+                     OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK blk0.
+SELECTION-SCREEN SKIP 1.
+SELECTION-SCREEN BEGIN OF BLOCK blk1 WITH FRAME TITLE text-b01.
+SELECT-OPTIONS: s_vkorg FOR knvv-vkorg OBLIGATORY,     "Sales Org
+                s_vtweg FOR knvv-vtweg,
+                s_spart FOR knvv-spart,
+                s_kunnr FOR kna1-kunnr,                 "Customer
+                s_katr5 FOR kna1-katr5,
+                s_subch FOR knvv-j_3akvgr7,       " subchannel addition with # CHG0043656 on 10/30/2017 by Uday Keerthipati
+                s_vkbur FOR knvv-vkbur,           " Sales office addition with # CHG0043656 on 10/30/2017 by Uday Keerthipati
+                s_bran2 FOR kna1-bran2,
+                s_bran3 FOR kna1-bran3,
+                s_bran4 FOR kna1-bran4,
+                s_bran5 FOR kna1-bran5,
+                s_kdgrp FOR knvv-kdgrp,
+*                s_crank FOR knvv-j_3akvgr10,
+                s_sdcky FOR kna1-land1.
+*}   REPLACE
+SELECTION-SCREEN SKIP 1.
+* Block BLK2:  Credit Control Area
+SELECTION-SCREEN BEGIN OF BLOCK blk2 WITH FRAME TITLE text-b02.
+SELECTION-SCREEN BEGIN OF LINE.
+*{   REPLACE        DV2K907927                                        3
+*\      parameters:  p_crdchk as checkbox default 'X'.
+PARAMETERS:  p_crdchk AS CHECKBOX.
+*}   REPLACE
+SELECTION-SCREEN COMMENT 4(45) t_crdchk.
+SELECTION-SCREEN END OF LINE.
+SELECT-OPTIONS:  s_kkber FOR knkk-kkber.
+SELECTION-SCREEN END OF BLOCK blk2.
+SELECTION-SCREEN END OF BLOCK blk1.
+
+* Block BLKC:  Target Catalogs
+SELECTION-SCREEN BEGIN OF BLOCK blkc WITH FRAME TITLE text-bkc.
+SELECT-OPTIONS:  s_catlog FOR gs_katalog-catalogx
+                          MATCHCODE OBJECT zxpr_sh_katalog
+                          VISIBLE LENGTH 20.
+SELECTION-SCREEN END OF BLOCK blkc.
+*{   INSERT         TSDK905521                                        7
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-s01.
+PARAMETERS: ch_var AS CHECKBOX DEFAULT space.
+SELECTION-SCREEN END OF BLOCK b1.
+*}   INSERT
+
+* Block BLKD:  Special Operations
+SELECTION-SCREEN BEGIN OF BLOCK blkd WITH FRAME TITLE text-bkd.
+SELECTION-SCREEN BEGIN OF LINE.
+SELECTION-SCREEN COMMENT (10) t_dlimit.
+PARAMETERS:  p_dlimit TYPE text6 DEFAULT ' +##'.
+SELECTION-SCREEN COMMENT 25(42) t_dlmcom.
+SELECTION-SCREEN END OF LINE.
+SELECTION-SCREEN END OF BLOCK blkd.
+
+
+
+************************************************************************
+***********************  Initialization  *******************************
+************************************************************************
+INITIALIZATION.
+  t_crdchk = 'Check Customer Credit'(t02).
+  t_dlimit = 'Delimiter'(t04).
+  t_dlmcom = '(Use ## to represent trailing spaces)'(t05).
+**--Begin of changes by Uday Keerthipati for CHG0043656 on 10/30/2017
+  s_subch-sign = 'I'.
+  s_subch-option = 'EQ'.
+  s_subch-low = '001'.
+  APPEND s_subch.
+  s_subch-sign = 'I'.
+  s_subch-option = 'EQ'.
+  s_subch-low = '002'.
+  APPEND s_subch.
+  s_subch-sign = 'I'.
+  s_subch-option = 'EQ'.
+  s_subch-low = '003'.
+  APPEND s_subch.
+**--End of changes by Uday Keerthipati for CHG0043656 on 10/30/2017
+
+
+************************************************************************
+*********************  At Selection Screen  ****************************
+************************************************************************
+AT SELECTION-SCREEN ON BLOCK blk2.
+  IF p_crdchk = 'X'    AND
+     s_kkber[] IS INITIAL.
+    MESSAGE e293(1e) WITH 'Credit Control Area'(t03).
+  ENDIF.   "p_crdchk = 'X'    and...
+
+
+
+************************************************************************
+*********************  Start-of-Selection  *****************************
+************************************************************************
+START-OF-SELECTION.
+  PERFORM set_globals.
+  PERFORM get_customer_list CHANGING gv_subrc.
+  IF gv_subrc = 0.
+*   Start of changes $1
+*   Catalog is nt referenced, so need to get catalog information
+*{   REPLACE        DV2K907927                                        1
+*\*   perform get_catalog_list changing gv_subrc.
+    PERFORM get_catalog_list CHANGING gv_subrc.
+*}   REPLACE
+*   End of changes $1
+    PERFORM fill_soldto.
+    PERFORM fill_shipto.       "shipto customer
+    PERFORM fill_custcat.      "customer catalog
+    PERFORM fill_pricecode.    "Price_Code
+    PERFORM update_code_codes_tables.
+  ENDIF.   "gv_subrc = 0
+
+*  perform EXPORT_CUSTCAT_TO_DB.
+
+
+************************************************************************
+*********************   END-OF-SELECTION   *****************************
+************************************************************************
+END-OF-SELECTION.
+  MESSAGE i007(zplumriver).
+
+
+
+************************************************************************
+***********************   SUBROUTINES   ********************************
+************************************************************************
+*&---------------------------------------------------------------------*
+*&      Form  UPDATE_CODE_CODES_TABLES
+*&---------------------------------------------------------------------*
+FORM update_code_codes_tables.
+* DESCRIPTION:  Write automatic entries to CODE and CODES tables
+
+*// local declaration
+* SALES REP LIST
+  DATA:  BEGIN OF ls_replist,
+           rep   TYPE kunnr,
+           vkorg TYPE vkorg,
+*{   INSERT         DV2K907927                                        3
+           vtweg TYPE vtweg,
+*}   INSERT
+           spart TYPE spart,
+           name  TYPE name1,
+         END OF ls_replist.
+
+  DATA:  lt_replist LIKE STANDARD TABLE OF ls_replist
+                    WITH NON-UNIQUE DEFAULT KEY
+                    INITIAL SIZE 50.
+
+* FIELDS
+  DATA:  lv_nextyear TYPE datum,
+         lv_soldto   TYPE kunnr,       "SOLD TO
+         lv_shipto   TYPE kunnr,       "Ship To
+         lv_rep      TYPE kunnr,          "Sales Rep
+         lv_tabix    TYPE sytabix,      "table index
+         lv_cnt      TYPE sydbcnt.        "RECORD COUNTER
+
+  FIELD-SYMBOLS:  <replist> LIKE ls_replist.
+
+*// Begin Processing
+  CLEAR:  gs_kode,
+          gt_kode[],
+          gs_kodes,
+          gt_kodes[].
+
+  CLEAR:  gv_seq,
+          gv_dateinserted.
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+
+* SET DATE FOR NEXT YEAR
+  lv_nextyear = sy-datum + 365.
+
+  SORT gt_soldtolist BY kunnr vkorg vtweg spart.
+  DELETE ADJACENT DUPLICATES FROM gt_soldtolist
+                             COMPARING kunnr vkorg.
+
+* determine soldto customer's sales reps
+  LOOP AT gt_soldtolist ASSIGNING <soldtolist>.
+    CLEAR:  lv_soldto,
+            ls_replist.
+    PERFORM transform_alpha_out USING <soldtolist>-kunnr
+                             CHANGING lv_soldto.
+
+*-- Get Partners of Soldto customer
+    REFRESH:  gt_knvp.
+    SELECT  kunnr vkorg vtweg
+            spart parvw parza
+            kunn2
+        FROM knvp INTO TABLE gt_knvp
+        WHERE kunnr = <soldtolist>-kunnr   AND
+              vkorg = <soldtolist>-vkorg   AND
+              vtweg = <soldtolist>-vtweg   AND
+              spart = <soldtolist>-spart   AND
+*{   REPLACE        DV2K907927                                       12
+*\              PARVW = 'XS'.             "XS: Sales Representative
+              parvw = 'ZA'.             "ZS: Sales Representative
+*}   REPLACE
+    IF sy-subrc = 0.
+      LOOP AT gts_repcode ASSIGNING <repcode>
+                          WHERE kunag = <soldtolist>-kunnr.
+        LOOP AT gt_knvp ASSIGNING <knvp>.
+          CLEAR:  lv_rep,
+                  lv_shipto,
+                  gs_kodes.
+          PERFORM transform_alpha_out USING <knvp>-kunn2
+                                   CHANGING lv_rep.
+          PERFORM transform_alpha_out USING <repcode>-kunwe
+                                   CHANGING lv_shipto.
+          gs_kodes-mandt = sy-mandt.
+          gs_kodes-techsite = gs_techsite-website.
+          gs_kodes-salesorg = <soldtolist>-vkorg.
+*{   INSERT         DV2K907927                                        2
+          gs_kodes-distchnl = <soldtolist>-vtweg.
+
+*}   INSERT
+          gs_kodes-division = <soldtolist>-spart.
+          gs_kodes-keyword = 'SalesRep'.
+          gs_kodes-code = lv_rep.
+          CONCATENATE lv_shipto
+                      lv_rep
+                  INTO gs_kodes-codes SEPARATED BY gv_delimiter.
+          gs_kodes-bindingkey = <repcode>-soldtoshipto.
+          gs_kodes-qualf = space.
+          gs_kodes-localeid = gc_localeid_en.
+          gs_kodes-parenttable = 'ShipTo'.
+          CONCATENATE sy-datum
+                      gc_timestart
+                  INTO gs_kodes-dateeffective.
+          CONCATENATE lv_nextyear
+                      gc_timefinish
+                  INTO gs_kodes-dateexpiration.
+          gs_kodes-sortorder = space.
+          gs_kodes-selected = 0.
+          gs_kodes-protected = space.
+          APPEND gs_kodes TO gt_kodes.
+*------ COLLECT UNIQUE REP LIST
+          ls_replist-rep = <knvp>-kunn2.
+          ls_replist-vkorg = <knvp>-vkorg.
+*{   INSERT         DV2K907927                                        4
+          ls_replist-vtweg = <knvp>-vtweg.
+*}   INSERT
+          ls_replist-spart = <knvp>-spart.
+          COLLECT ls_replist INTO lt_replist.
+        ENDLOOP.   "AT GT_KNVP ASSIGNING <KNVP>
+      ENDLOOP.   "
+    ENDIF.   "sy-subrc = 0
+  ENDLOOP.   "AT GT_SOLDTOLIST assigning <SOLDTOLIST>
+
+* KODES: sort and remove duplicate records
+  SORT gt_kodes BY mandt techsite salesorg
+*{   REPLACE        DV2K907927                                        1
+*\                   DIVISION KEYWORD CODE
+                   distchnl division keyword code
+*}   REPLACE
+                   codes qualf localeid.
+  DELETE ADJACENT DUPLICATES FROM gt_kodes
+                             COMPARING mandt techsite salesorg
+*{   REPLACE        DV2K907927                                       11
+*\                                       DIVISION KEYWORD CODE
+                                       distchnl division keyword code
+*}   REPLACE
+                                       codes qualf localeid.
+
+* Prepare and Add KODES Records
+*{   REPLACE        DV2K912096                                       13
+*\  delete from ztxx_pr_kodes
+*\         where techsite = gs_techsite-website   and
+*\               salesorg in s_vkorg              and
+*\               keyword = 'SalesRep'             and
+*\               protected = space.
+*\  insert ztxx_pr_kodes from table gt_kodes
+*\                       accepting duplicate keys.
+  MODIFY ztxx_pr_kodes FROM TABLE gt_kodes.
+*}   REPLACE
+  COMMIT WORK.
+
+
+* Begin KODE table
+*{   REPLACE        DV2K907927                                        5
+*\  sort lt_replist by rep vkorg SPART.
+  SORT lt_replist BY rep vkorg vtweg spart.
+*}   REPLACE
+  LOOP AT lt_replist ASSIGNING <replist>.
+    CLEAR: gs_kode,
+           lv_rep.
+    gs_kode-mandt = sy-mandt.
+    gs_kode-techsite = gs_techsite-website.
+    gs_kode-salesorg = <replist>-vkorg.
+*{   INSERT         DV2K907927                                        6
+    gs_kode-distchnl = <replist>-vtweg.
+*}   INSERT
+    gs_kode-division = <replist>-spart.
+    gs_kode-keyword = 'SalesRep'.
+    PERFORM transform_alpha_out USING <replist>-rep
+                             CHANGING lv_rep.
+    gs_kode-code = lv_rep.
+    gs_kode-localeid = gc_localeid_en.
+    gs_kode-qualf = space.
+    PERFORM get_customer_name USING <replist>-rep
+                           CHANGING gs_kode-description.
+    gs_kode-shortform = gs_kode-description.
+    gs_kode-x12code = space.
+    gs_kode-sortorder = space.
+    gs_kode-selected = 0.
+    gs_kode-protected = space.
+    gs_kode-dateinserted = gv_dateinserted.
+    gs_kode-xtext = 'X'.
+    APPEND gs_kode TO gt_kode.
+  ENDLOOP.   "at lt_replist assigning <replist>
+
+* KODE:  SORT AND REMOVE DUPLICATES
+  SORT gt_kode BY mandt techsite salesorg
+*{   REPLACE        DV2K907927                                        8
+*\                  DIVISION KEYWORD CODE
+                  distchnl division keyword code
+*}   REPLACE
+                  localeid qualf.
+  DELETE ADJACENT DUPLICATES FROM gt_kode
+                             COMPARING mandt techsite salesorg
+*{   REPLACE        DV2K907927                                        9
+*\                                       DIVISION KEYWORD CODE
+                                       distchnl division keyword code
+*}   REPLACE
+                                       localeid qualf.
+
+* Prepare and Add KODE Records
+*{   REPLACE        DV2K912096                                       14
+*\  delete from ztxx_pr_kode
+*\         where techsite = gs_techsite-website   and
+*\               salesorg in s_vkorg              and
+*\               DIVISION IN S_VTWEG              AND
+*\               keyword = 'SalesRep'             and
+*\               protected = space.
+*\  insert ztxx_pr_kode from table gt_kode
+*\                      accepting duplicate keys.
+  MODIFY ztxx_pr_kode FROM TABLE gt_kode.
+*}   REPLACE
+  COMMIT WORK.
+
+ENDFORM.                               " UPDATE_CODE_CODES_TABLES
+
+
+*&---------------------------------------------------------------------*
+*&      Form  set_globals
+*&---------------------------------------------------------------------*
+FORM set_globals.
+* set intial values for global fields and work areas
+*// Local declarations
+  DATA: lv_cnt TYPE i.
+
+
+*// BEGIN PROCESSING
+* initialize variables and structures
+  CLEAR:  gv_tabix,
+          gv_subrc,
+          gv_vkorg,
+          gv_vtweg,
+          gv_spart,
+          gv_matnr,
+          gv_kunnr,
+          gs_techsite,
+          gs_tablekey.
+
+* Get technical website details and set HDI table primary field.
+  SELECT SINGLE website pr_website url
+            FROM ztxx_pr_website
+            INTO gs_techsite
+            WHERE website = p_tsite.
+  IF sy-subrc = 0.
+    gs_tablekey-techsite = p_tsite.
+  ELSE.
+    MESSAGE e011(zplumriver) WITH p_tsite.
+  ENDIF.   "sy-subrc = 0  [on select single... from ZTXX_PR_WEBSITE]
+
+* Set remaining Primary key field for table updates
+* Determine Sales Organization(s)
+  SELECT  vkorg bukrs adrnr
+      FROM tvko INTO TABLE gt_tvko
+      WHERE vkorg IN s_vkorg.
+  IF sy-subrc = 0.
+    LOOP AT gt_tvko INTO gs_tvko.
+      IF sy-tabix = 1.
+        gs_tablekey-vkorg = gs_tvko-vkorg.
+      ELSE.
+        CLEAR:  gs_tablekey-vkorg.
+        EXIT.
+      ENDIF.    "sy-tabix = 1
+    ENDLOOP.   "at GT_TVKO into gs_TVKO
+  ENDIF.   " sy-subrc = 0
+* Determine Distribution Channel(s)
+  SELECT  vtweg
+      FROM tvtw INTO TABLE gt_tvtw
+      WHERE vtweg IN s_vtweg.
+  IF sy-subrc = 0.
+    LOOP AT gt_tvtw INTO gs_tvtw.
+      IF sy-tabix = 1.
+        gs_tablekey-vtweg = gs_tvtw-vtweg.
+      ELSE.
+        CLEAR:  gs_tablekey-vtweg.
+        EXIT.
+      ENDIF.    "sy-tabix = 1
+    ENDLOOP.   "at gt_tvtw into gs_tvtw
+  ENDIF.   " sy-subrc = 0
+* Determine Division(s)
+  SELECT  spart
+      FROM tspa INTO TABLE gt_tspa
+      WHERE spart IN s_spart.
+  IF sy-subrc = 0.
+    LOOP AT gt_tspa INTO gs_tspa.
+      IF sy-tabix = 1.
+        gs_tablekey-spart = gs_tspa-spart.
+      ELSE.
+        CLEAR:  gs_tablekey-spart.
+        EXIT.
+      ENDIF.    "sy-tabix = 1
+    ENDLOOP.   "at gt_tspa into gs_tspa
+  ENDIF.   " sy-subrc = 0
+
+* assign global variables
+  gv_vkorg = gs_tablekey-vkorg.
+  gv_vtweg = gs_tablekey-vtweg.
+  gv_spart = gs_tablekey-spart.
+
+* Delimiter creation
+  IF NOT p_dlimit IS INITIAL.
+    CLEAR:  gv_delimiter,
+            lv_cnt.
+    gv_delimiter = p_dlimit.
+    REPLACE ALL OCCURRENCES OF '##'
+                            IN gv_delimiter
+                            WITH space
+                            REPLACEMENT COUNT lv_cnt.
+    DO lv_cnt TIMES.
+      CONCATENATE gv_delimiter
+                  space
+              INTO gv_delimiter SEPARATED BY space.
+    ENDDO.   "lv_cnt times
+  ENDIF.   "not p_dlimit is initial
+
+ENDFORM.                    " set_globals
+
+
+*&---------------------------------------------------------------------*
+*&      Form  DELETE_DB_ROWS
+*&---------------------------------------------------------------------*
+FORM delete_db_rows USING    us_tablekey LIKE gs_tablekey
+                             us_tablename TYPE c
+                    CHANGING ch_rc TYPE sysubrc.
+*  DESCRIPTION: Delete table rows before subsequent update.
+*               CH_RC = 0:   Successful
+*               CH_RC <> 0:  Failure
+
+* LOCAL DECLARATION
+  DATA: lv_mandt TYPE mandt.
+
+
+  CLEAR:  ch_rc.
+  DELETE FROM (us_tablename)
+         WHERE techsite = us_tablekey-techsite.
+*               VKORG in  S_VKORG                 AND
+*               VTWEG in  S_VTWEG                 AND
+*               SPART in  S_SPART.
+  ch_rc = sy-subrc.
+  IF ch_rc <> 0.
+*-- Did deletion fail because there is no record(s) to delete??
+*-- Check for a record... return a successful code (0) if none found
+    SELECT SINGLE mandt
+            INTO lv_mandt
+            FROM (us_tablename)
+            WHERE techsite = us_tablekey-techsite.  "   AND
+*                  VKORG in  S_VKORG                 AND
+*                  VTWEG in  S_VTWEG                 AND
+*                  SPART in  S_SPART.
+    IF sy-subrc <> 0.
+*---- no records found, new records can be inserted (later)... success.
+      ch_rc = 0.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.                    " DELETE_DB_ROWS
+
+*&---------------------------------------------------------------------*
+*&      Form  SET_KUNNR_INTERNAL
+*&---------------------------------------------------------------------*
+FORM set_kunnr_internal CHANGING ch_field TYPE c.
+* add leading zeros to type CHAR fields
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = ch_field
+    IMPORTING
+      output = ch_field.
+
+ENDFORM.                    " SET_KUNNR_INTERNAL
+
+
+*&---------------------------------------------------------------------*
+*&      Form  fill_custcatfile
+*&---------------------------------------------------------------------*
+FORM fill_custcatfile USING    us_kunnr
+                               us_catcode
+                               us_date_effective
+                               us_date_expire
+                               us_default
+                      CHANGING ch_custcatfile LIKE gs_custcatfile.
+* fill work area gs_CUSTCATFILE
+
+  CLEAR:  ch_custcatfile.
+  ch_custcatfile-kunnr = us_kunnr.
+  ch_custcatfile-catalogx = us_catcode.
+  ch_custcatfile-date_effective = us_date_effective.
+  ch_custcatfile-date_expire = us_date_expire.
+  ch_custcatfile-default = us_default.
+
+ENDFORM.                    " fill_custcatfile
+
+
+*&---------------------------------------------------------------------*
+*&      Form  EXPORT_CUSTCAT_TO_DB
+*&---------------------------------------------------------------------*
+FORM export_custcat_to_db.
+
+  gv_date = sy-datum.
+  gv_time = sy-uzeit.
+  EXPORT  gv_date
+          gv_time
+          gt_custcatfile
+     TO DATABASE indx(st) ID gc_memoryid.
+
+ENDFORM.                    " EXPORT_CUSTCAT_TO_DB
+
+
+*&---------------------------------------------------------------------*
+*&      Form  get_customer_list
+*&---------------------------------------------------------------------*
+FORM get_customer_list CHANGING ch_subrc TYPE sysubrc.
+* DESCRIPTION:  Get Customer List
+
+* Return codes
+*          0:  Customer records returned
+*         80:  No KNA1 customer records
+*         99:  No customer records returned
+
+  CLEAR:  ch_subrc,
+          gs_knvv,gt_cust,gt_knb1,
+          gt_knvv[].
+
+  SELECT kunnr FROM kna1 INTO TABLE gt_cust WHERE kunnr IN s_kunnr
+                                              AND loevm EQ space
+                                              AND katr5 IN s_katr5
+                                              AND bran2 IN s_bran2
+                                              AND bran3 IN s_bran3
+                                              AND bran4 IN s_bran4
+                                              AND bran5 IN s_bran5.
+  IF NOT gt_cust[] IS INITIAL.
+    SELECT kunnr zterm FROM knb1 INTO TABLE gt_knb1 FOR ALL ENTRIES IN gt_cust
+    WHERE kunnr = gt_cust-kunnr.
+    SELECT  kunnr vkorg vtweg
+            spart loevm aufsd
+            kalks kdgrp bzirk
+*{   REPLACE        DV2K907927                                        2
+*\          KONDA LIFSD AUTLF
+            konda pltyp lifsd autlf
+*}   REPLACE
+*{   REPLACE        TSDK905521                                        3
+*\          LPRIO FAKSD WAERS
+            lprio vsbed faksd waers
+*}   REPLACE
+            ktgrd zterm vkgrp
+            vkbur kvgr1 kvgr2
+            kvgr3 kvgr4 kvgr5
+            kkber j_3akvgr6 j_3akvgr7
+            j_3akvgr8 j_3akvgr9 j_3akvgr10
+       FROM knvv INTO TABLE gt_knvv FOR ALL ENTRIES IN gt_cust
+       WHERE kunnr EQ gt_cust-kunnr AND
+             vkorg IN s_vkorg       AND
+             vtweg IN s_vtweg       AND
+             spart IN s_spart       AND
+             kdgrp IN s_kdgrp       AND
+**--Begin of changes by Uday Keerthipati for CHG0043656 on 10/30/2017
+             j_3akvgr7 IN s_subch   AND
+             vkbur IN s_vkbur       AND
+**--End of changes by Uday Keerthipati for CHG0043656 on 10/30/2017
+*{   REPLACE        DV2K907927                                        1
+*\           loevm = space.               "not marked for deletion
+             loevm = space.     "not marked for deletion
+*}   REPLACE
+    IF sy-subrc = 0.
+      SORT:  gt_knvv BY kunnr vkorg vtweg
+                        spart.
+    ELSE.
+*-- no KNVV records found
+      ch_subrc = 99.
+    ENDIF.   "sy-subrc = 0
+  ELSE.
+    ch_subrc = 99.
+  ENDIF.
+ENDFORM.                    " get_customer_list
+
+
+*&---------------------------------------------------------------------*
+*&      Form  FILL_SOLDTO
+*&---------------------------------------------------------------------*
+FORM fill_soldto.
+* DESCRIPTION:  Fill Soldto HDI table (ZTXX_PR_SOLDTO)
+
+*// Local declaration
+  DATA: lv_creditlimit TYPE knkk-klimk,
+        lv_creditavail TYPE knkk-klimk.
+*{   INSERT         DV2K907927                                        2
+  TYPES: BEGIN OF t_kna1,
+           kunnr TYPE kunnr,
+         END OF t_kna1.
+  DATA: lt_knvv LIKE gt_knvv,
+        lt_kna1 TYPE TABLE OF t_kna1.
+  DATA: wa_kna1 TYPE t_kna1.
+  DATA: lv_tabix TYPE sy-tabix.
+  lt_knvv[] = gt_knvv[].
+  IF NOT lt_knvv[] IS INITIAL.
+    SELECT kunnr FROM kna1 INTO TABLE lt_kna1 FOR ALL ENTRIES IN lt_knvv
+    WHERE kunnr = lt_knvv-kunnr
+      AND land1 IN s_sdcky.
+    LOOP AT lt_knvv INTO gs_knvv.
+      CLEAR: lv_tabix.
+      lv_tabix = sy-tabix.
+      READ TABLE lt_kna1 INTO wa_kna1 WITH KEY kunnr = gs_knvv-kunnr.
+      IF sy-subrc NE 0.
+        DELETE lt_knvv INDEX lv_tabix.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+*}   INSERT
+
+*// Begin Processing
+* Get sold-to customer list
+*{   INSERT         DV2K907927                                        3
+  IF NOT lt_knvv[] IS INITIAL.
+*}   INSERT
+    REFRESH:  gt_knvp.
+    SELECT  kunnr vkorg vtweg
+            spart parvw parza
+            kunn2
+        FROM knvp INTO TABLE gt_knvp
+*{   REPLACE        DV2K907927                                        5
+*\      for all entries in GT_KNVV
+*\      where KUNNR = GT_KNVV-KUNNR    and
+*\            VKORG = GT_KNVV-VKORG    and
+*\            VTWEG = GT_KNVV-VTWEG    and
+*\            SPART = GT_KNVV-SPART    and
+        FOR ALL ENTRIES IN lt_knvv
+        WHERE kunnr = lt_knvv-kunnr    AND
+              vkorg = lt_knvv-vkorg    AND
+              vtweg = lt_knvv-vtweg    AND
+              spart = lt_knvv-spart    AND
+*}   REPLACE
+              parvw = 'AG'             AND    "sold to customer
+              kunn2 IN s_kunnr.
+    IF sy-subrc = 0.
+*-- remove duplicates (based on soldto and sales organization)
+      SORT gt_knvp BY kunn2 vkorg vtweg spart.
+      DELETE ADJACENT DUPLICATES FROM gt_knvp COMPARING kunn2 vkorg.
+    ENDIF.   "sy-subrc = 0  [ON Select... from KNVP]
+  ENDIF.
+
+* PREPARE SOLDTO TABLE AND FIELDS FOR APPENDING
+  CLEAR:  gt_custcat[],
+          gt_soldto[].
+  CLEAR:  gv_seq,
+          gv_dateinserted.
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+
+  LOOP AT gt_knvp ASSIGNING <knvp>.
+    CLEAR:  gs_soldto,
+            gs_soldtolist.
+*-- PREPARE SOLDTO CUSTOMER Record
+    gs_soldto-mandt = sy-mandt.
+    gs_soldto-techsite = gs_tablekey-techsite.
+    gs_soldto-vkorg = <knvp>-vkorg.
+    gs_soldto-vtweg = <knvp>-vtweg.
+    gs_soldto-spart = <knvp>-spart.
+*    gs_soldto-seq = gv_seq.
+*-- Map HDI fields
+*    gs_soldto-id = gv_seq.
+*-- retrieve KNVV details for Sold to customer
+    PERFORM get_knvv_details USING <knvp>-kunn2
+                                   <knvp>-vkorg
+                                   <knvp>-vtweg
+                                   <knvp>-spart
+                          CHANGING  gs_knvv.
+    PERFORM transform_alpha_out USING <knvp>-kunn2
+                             CHANGING gs_soldto-soldto.
+    gs_soldto-zzsoldto = gs_soldto-soldto.
+    gs_soldto-hostref = gs_soldto-soldto.
+    gs_soldto-localeid = gc_localeid_en.
+    gs_soldto-website = gs_techsite-pr_website.
+*{   INSERT         DV2K907927                                        1
+    gs_soldto-distchnl = <knvp>-vtweg.
+    gs_soldto-division = <knvp>-spart.
+    IF gs_knvv-kvgr2 = 'NDS'.
+      gs_soldto-dropship = 0.
+    ELSE.
+      gs_soldto-dropship = 1.
+    ENDIF.
+*}   INSERT
+    gs_soldto-salesorg = <knvp>-vkorg.
+    PERFORM get_customer_details  USING <knvp>-kunn2
+                               CHANGING gs_kna1.
+    gs_soldto-companyname = gs_kna1-name.
+    IF NOT gs_kna1-address1 IS INITIAL.
+      gs_soldto-address1 = gs_kna1-address1.
+    ELSE.
+      gs_soldto-address1 = '<Not Maintained>'.
+    ENDIF.   "NOT GS_KNA1-ADDRESS1 is initial
+    gs_soldto-address2 = gs_kna1-address2.
+    gs_soldto-address3 = gs_kna1-address3.
+    gs_soldto-city = gs_kna1-city.
+    gs_soldto-stateprovince = gs_kna1-region.
+    gs_soldto-postalcode = gs_kna1-postalcode.
+    gs_soldto-country = gs_kna1-country.
+    gs_soldto-phone = gs_kna1-phone.
+    gs_soldto-fax = gs_kna1-fax.
+    gs_soldto-url = gs_kna1-url.
+    gs_soldto-email = gs_kna1-email.
+*-- Get Soldto KNVV record
+    PERFORM get_knvv_record  USING <knvp>-kunn2
+                                   <knvp>-vkorg
+                                   <knvp>-vtweg
+                                   <knvp>-spart
+                          CHANGING gs_knvv.
+*-- Set currency
+    gs_soldto-currency = gs_knvv-waers.
+*    PERFORM GET_CUSTOMER_CURRENCY  USING <KNVP>-KUNN2
+*                                         <KNVP>-VKORG
+*                                         <KNVP>-VTWEG
+*                                         <KNVP>-SPART
+*                                CHANGING GS_SOLDTO-CURRENCY.
+    IF NOT p_crdchk IS INITIAL.
+*---- get Credit details
+      PERFORM get_credit_details  USING gs_knvv
+                               CHANGING gs_knkk
+                                        lv_creditlimit
+                                        lv_creditavail.
+      gs_soldto-creditlimit = lv_creditlimit.
+      gs_soldto-creditavailable = lv_creditavail.
+    ENDIF.   "NOT p_crdchk is initial
+    IF gs_kna1-aufsd IS INITIAL   AND
+       gs_knkk-crblb IS INITIAL.
+      CLEAR:  gs_soldto-creditstatus.
+      gs_soldto-enabled = '1'.
+    ELSE.
+      gs_soldto-enabled = '0'.
+      IF NOT gs_knkk-crblb IS INITIAL.
+        gs_soldto-creditstatus = gs_knkk-crblb.
+      ENDIF.   "NOT gs_knkk-crblb IS INITIAL
+    ENDIF.
+    IF gs_kna1-loevm IS NOT INITIAL OR gs_knvv-loevm IS NOT INITIAL OR gs_knvv-aufsd IS NOT INITIAL.
+      gs_soldto-enabled = '0'.
+    ENDIF.
+    PERFORM get_knvk_contact  USING <knvp>-kunn2
+                           CHANGING gs_soldto-contact.
+    gs_soldto-category = gs_knvv-kdgrp.
+* added sub channel mgb 03/11/19
+    gs_soldto-sub_channel  = gs_knvv-j_3akvgr7.
+*
+    gs_soldto-dateinserted = gv_dateinserted.
+*-- PREPARE SOLDTO CUSTOMER LIST
+    gs_soldtolist-kunnr = <knvp>-kunn2.
+    gs_soldtolist-vkorg = <knvp>-vkorg.
+    gs_soldtolist-vtweg = <knvp>-vtweg.
+    gs_soldtolist-spart = <knvp>-spart.
+    gs_soldtolist-parvw = <knvp>-parvw.
+*-- ADD RECORDS
+    IF NOT gs_soldto-address1 IS INITIAL.
+      COLLECT gs_soldtolist INTO gt_soldtolist.
+      APPEND gs_soldto TO gt_soldto.
+    ELSE.
+      WRITE: / 'Customer', gs_soldto-soldto,
+               'has no address and will be ignored.'.
+      CONTINUE.
+    ENDIF.   "NOT GS_SOLDTO-ADDRESS1 is initial
+  ENDLOOP.
+
+  MODIFY ztxx_pr_soldto FROM TABLE gt_soldto.
+*}   REPLACE
+  IF sy-subrc = 0.
+    COMMIT WORK.
+  ELSE.
+*---- Records failed to be inserted
+    ROLLBACK WORK.
+    MESSAGE e100(zplumriver) WITH 'Soldto'.
+  ENDIF.
+
+ENDFORM.                    " FILL_SOLDTO
+
+
+*&---------------------------------------------------------------------*
+*&      Form  FILL_SHIPTO
+*&---------------------------------------------------------------------*
+FORM fill_shipto.
+* DESCRIPTION:  Fill Shipto HDI table (ZTXX_PR_SHIPTO)
+
+*// Local declaration
+  DATA:  lv_kunre TYPE kunre,        "billTo customer
+         lv_tabix TYPE sytabix,      "table index
+         lv_cnt   TYPE sydbcnt.        "RECORD COUNTER
+
+  DATA:  lv_kunn2 TYPE knvp-kunn2.
+*{   INSERT         TSDK905521                                       12
+  DATA:  ls_knvv LIKE gs_knvv.
+*}   INSERT
+
+*// Begin Processing
+  CLEAR:  gs_shipto,
+          gt_shipto[].
+
+  CLEAR:  gv_seq,
+          gv_dateinserted.
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+
+  SORT gt_soldtolist BY kunnr vkorg vtweg spart.
+*  DELETE ADJACENT DUPLICATES FROM GT_SOLDTOLIST
+*                             COMPARING KUNNR VKORG.
+
+  LOOP AT gt_soldtolist ASSIGNING <soldtolist>.
+    CLEAR:  gs_billtolist,
+            lv_kunre,
+            lv_cnt.
+*{   INSERT         TSDK905521                                       13
+    CLEAR: ls_knvv.
+    READ TABLE gt_knvv INTO ls_knvv
+                     WITH KEY kunnr = <soldtolist>-kunnr
+                              vkorg = <soldtolist>-vkorg
+                              vtweg = <soldtolist>-vtweg
+                              spart = <soldtolist>-spart.
+*}   INSERT
+*-- Get Partners of Soldto customer
+    REFRESH:  gt_knvp.
+    SELECT  kunnr vkorg vtweg
+            spart parvw parza
+            kunn2
+        FROM knvp INTO TABLE gt_knvp
+        WHERE kunnr = <soldtolist>-kunnr   AND
+              vkorg = <soldtolist>-vkorg   AND
+              vtweg = <soldtolist>-vtweg   AND
+              spart = <soldtolist>-spart   AND
+*            ( PARVW = 'WE'  OR                     "ship to customer
+*              PARVW = 'JM' )               and     "Mark for store
+*{   REPLACE        DV2K907927                                        5
+*\              PARVW in ('WE','RE')         and  "WE: ShipTo; RE: Billto
+*\              KUNN2 in S_KUNNR.
+              parvw IN ('WE','RE').
+*}   REPLACE
+    IF sy-subrc = 0.
+*---- SET COUNTER FOR NUMBER OF PARTNER FOUND
+*{   DELETE         DV2K912096                                        7
+*\      LV_CNT = SY-DBCNT.
+*}   DELETE
+*---- PREPARE BILLTO LIST
+      LOOP AT gt_knvp ASSIGNING <knvp>
+                      WHERE parvw = 'RE'.     "BILLTO
+*------ DECREMENT COUNTER FOR EACH BILLTO PARTNER FOUND
+*{   DELETE         DV2K912096                                        8
+*\        LV_CNT = LV_CNT - 1.
+*}   DELETE
+        IF sy-tabix = 1.
+*-------- MAKE INITIAL ASSIGNMENT FOR SHIPTO'S BILLTO PARTNER
+          lv_kunre = <knvp>-kunn2.
+        ELSE.
+*-------- IF MORE THAN 1 BILLTO, THEN BILLTO IS INDETERMINATE FOR THE
+*-------- SHIPTO ASSIGNMENT, SO CLEAR IT!!
+          CLEAR: lv_kunre.
+        ENDIF.
+        CLEAR:  gs_billtolist.
+        gs_billtolist-kunnr = <knvp>-kunn2.
+        gs_billtolist-vkorg = <knvp>-vkorg.
+        gs_billtolist-vtweg = <knvp>-vtweg.
+        gs_billtolist-spart = <knvp>-spart.
+        gs_billtolist-parvw = <knvp>-parvw.
+        COLLECT gs_billtolist INTO gt_billtolist.
+      ENDLOOP.   " AT GT_KNVP assigning <KNVP>... PARVW = 'RE'
+    ENDIF.   "sy-subrc = 0  [ON Select... from KNVP]
+*-- PREPARE HDI SHIPTO CUSTOMERS
+    LOOP AT gt_knvp ASSIGNING <knvp>
+                    WHERE parvw <> 'RE'.     "NOT BILLTO (i.e. ShipTo)
+      CLEAR:  gs_shipto.
+*---- set table key fields
+      gs_shipto-mandt = sy-mandt.
+      gs_shipto-techsite = gs_techsite-website.
+      gs_shipto-vkorg = <knvp>-vkorg.
+      gs_shipto-vtweg = <knvp>-vtweg.
+      gs_shipto-spart = <knvp>-spart.
+*      gs_shipto-seq = gv_seq.
+*---- set HDI fields
+*      gs_shipto-id = gv_seq.
+      gs_shipto-localeid = gc_localeid_en.
+      PERFORM transform_alpha_out USING <knvp>-kunnr
+                               CHANGING gs_shipto-soldto.
+      PERFORM transform_alpha_out USING <knvp>-kunn2
+                               CHANGING gs_shipto-shipto.
+      CONCATENATE  gs_shipto-soldto
+                   gs_shipto-shipto
+               INTO  gs_shipto-soldtoshipto SEPARATED BY gv_delimiter.
+      gs_shipto-zzshipto = gs_shipto-hostref = gs_shipto-soldtoshipto.
+      gs_shipto-website = gs_techsite-pr_website.
+      gs_shipto-salesorg = <knvp>-vkorg.
+*{   INSERT         DV2K907927                                        1
+      gs_shipto-distchnl = <knvp>-vtweg.
+      gs_shipto-division = <knvp>-spart.
+*}   INSERT
+      gs_shipto-billto = lv_kunre.
+      PERFORM get_customer_details  USING <knvp>-kunn2
+                                 CHANGING gs_kna1.
+      gs_shipto-storeno = gs_kna1-j_3astcu.
+      IF gs_kna1-j_3astcu IS INITIAL.
+*------ DISPLAY SHIPTO NUMBER
+        gs_shipto-shiptodisplayas = gs_shipto-shipto.
+      ELSE.
+*------ DISPLAY STORE NUMBER
+        gs_shipto-shiptodisplayas = gs_shipto-shipto.
+      ENDIF.   "GS_KNA1-J_3ASTCU IS INITIAL
+      gs_shipto-companyname = gs_kna1-name.
+      IF NOT gs_kna1-address1 IS INITIAL.
+        gs_shipto-address1 = gs_kna1-address1.
+      ELSE.
+        gs_shipto-address1 = '<Not Maintained>'.
+      ENDIF.   "NOT GS_KNA1-ADDRESS1 is initial
+      gs_shipto-address2 = gs_kna1-address2.
+      gs_shipto-address3 = gs_kna1-address3.
+      gs_shipto-city = gs_kna1-city.
+      gs_shipto-stateprovince = gs_kna1-region.
+      gs_shipto-postalcode = gs_kna1-postalcode.
+      gs_shipto-country = gs_kna1-country.
+      gs_shipto-phone = gs_kna1-phone.
+      gs_shipto-fax = gs_kna1-fax.
+      gs_shipto-email = gs_kna1-email.
+*---- SET DEFAULT SHIPTO PARTNER, IF POSSIBLE
+*{   REPLACE        DV2K912096                                        9
+*\      IF LV_CNT = 1.
+*\*------ ONLY ONE SHIPTO, SO SET AS DEFAULT
+*\        gs_shipto-SELECTED = '1'.
+*\        CLEAR:  LV_CNT.
+*\      ELSE.
+*\*------ MORE THAN ONE PARTNER SHIPTO...
+*\        IF GS_SHIPTO-SOLDTO = GS_SHIPTO-SHIPTO.
+*\*-------- SET AS DEFAULT, SHIPTO NUMBER = SOLDTO NUMBER
+*\          gs_shipto-SELECTED = '1'.
+*\          CLEAR:  LV_CNT.
+*\        ELSE.
+*\*-------- SHIPTO CUSTOMER IS NOT DEFAULT
+*\          gs_shipto-SELECTED = '0'.
+*\        ENDIF.   "GS_SHIPTO-SOLDTO = GS_SHIPTO-SHIPTO
+*\      ENDIF.   "LV_CNT = 1
+      gs_shipto-selected = '0'.
+*}   REPLACE
+      PERFORM get_knvv_record  USING <knvp>-kunn2
+                                     <knvp>-vkorg
+                                     <knvp>-vtweg
+                                     <knvp>-spart
+                            CHANGING gs_knvv.
+      IF gs_knvv-aufsd IS INITIAL.
+        gs_shipto-enabled = '1'.
+      ELSE.
+        gs_shipto-enabled = '0'.
+      ENDIF.
+      IF gs_kna1-aufsd IS NOT INITIAL OR gs_kna1-loevm IS NOT INITIAL OR gs_knvv-loevm IS NOT INITIAL.
+        gs_shipto-enabled = '0'.
+      ENDIF.
+      PERFORM get_knvk_contact USING <knvp>-kunn2
+                            CHANGING gs_shipto-contact.
+*{   DELETE         TSDK905521                                       10
+*\      perform GET_KNVP_PARTNER USING <KNVP>-KUNNR
+*\                                     <KNVP>-VKORG
+*\                                     <KNVP>-VTWEG
+*\                                     <KNVP>-SPART
+*\                                     'ZC'           "carrier
+*\                            CHANGING LV_KUNN2.
+*}   DELETE
+*{   REPLACE        TSDK905521                                       11
+*\      gs_shipto-SHIPMETHOD = LV_KUNN2.
+      IF NOT gs_knvv-vsbed IS INITIAL.
+* Shipping Condition of Ship to
+        gs_shipto-shipmethod = gs_knvv-vsbed.
+      ELSE.
+* Shipping Condition of Sold to
+        gs_shipto-shipmethod = ls_knvv-vsbed.
+      ENDIF.
+*}   REPLACE
+      gs_shipto-dateinserted = gv_dateinserted.
+** Fields not currently mapped.
+      APPEND gs_shipto TO gt_shipto.
+*---- insert record into GTS_REPCODE table
+      CLEAR:  gs_repcode.
+      gs_repcode-kunag = <knvp>-kunnr.     "store with leading zeros
+      gs_repcode-kunwe = <knvp>-kunn2.     "store with leading zeros
+      gs_repcode-soldtoshipto = gs_shipto-soldtoshipto.
+      INSERT gs_repcode INTO TABLE gts_repcode.
+    ENDLOOP.   " AT GT_KNVP assigning <KNVP>... PARVW <> 'RE'
+  ENDLOOP.   "AT GT_SOLDTOLIST assigning <SOLDTOLIST>
+
+* make sure records are unique combination of soldto/shipto
+*{Start of comment by lokesh on 10/27/2016
+  SORT gt_shipto BY soldto shipto vkorg
+                    vtweg spart.
+  DELETE ADJACENT DUPLICATES FROM gt_shipto
+                             COMPARING soldto shipto vkorg.
+*}End of comment by lokesh on 10/27/2016
+*  SORT gt_shipto BY vkorg DESCENDING.               "Added by lokesh on 10/27/2016
+*  IF sy-subrc = 0.
+**-- at least one record deleted...renumber fields
+*    CLEAR:  gv_seq.
+*    LOOP AT gt_shipto ASSIGNING <shipto>.
+*      gv_seq = gv_seq + 1.
+*      <shipto>-seq = gv_seq.
+*      <shipto>-id = gv_seq.
+*    ENDLOOP.   "at gt_shipto assigning <shipto>
+*  ENDIF.   "sy-subrc = 0
+
+  MODIFY ztxx_pr_shipto FROM TABLE gt_shipto.
+*}   REPLACE
+  IF sy-subrc = 0.
+    COMMIT WORK.
+  ELSE.
+*---- Records failed to be inserted
+    ROLLBACK WORK.
+    MESSAGE e100(zplumriver) WITH 'Shipto'.
+  ENDIF.
+
+ENDFORM.                    " FILL_SHIPTO
+
+*&---------------------------------------------------------------------*
+*&      Form  FILL_CUSTCAT
+*&---------------------------------------------------------------------*
+FORM fill_custcat.
+* DESCRIPTION:  Fill CUSTOMER_CATALOG HDI table (ZTXX_PR_CUSTCAT)
+
+*// LOCAL DECLARATION
+  DATA:  lv_tabix TYPE sytabix.
+*{   INSERT         DV2K907927                                        3
+  DATA:  lv_kunnr TYPE kunnr.
+*}   INSERT
+
+*// BEGIN PROCESSING
+  CLEAR:  gt_custcat[].
+  CLEAR:  gv_seq,
+          gv_dateinserted.
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+
+*   Catalog is not referenced, so need to get catalog information
+  LOOP AT gt_katalog ASSIGNING <katalog>.
+    CLEAR:gs_knb1.
+    lv_tabix = sy-tabix.
+    LOOP AT gt_soldto ASSIGNING <soldto> WHERE vkorg = <katalog>-salesorg
+                                           AND vtweg = <katalog>-distchnl.
+*---- Set Primary key
+      CLEAR:  gs_custcat,lv_kunnr,gs_knvv.
+      gs_custcat-mandt = sy-mandt.
+      gs_custcat-techsite = gs_techsite-website.
+      gs_custcat-vkorg = <soldto>-salesorg.
+      gs_custcat-vtweg = <katalog>-distchnl.
+      gs_custcat-spart = <soldto>-division.
+*      GS_CUSTCAT-SEQ = GV_SEQ.
+*---- Set HDI fields.
+*      gs_custcat-id = gv_seq.
+      gs_custcat-localeid = gc_localeid_en.
+      CONCATENATE  <soldto>-soldto
+                   <katalog>-catalogx
+              INTO gs_custcat-customercatalog.
+      gs_custcat-zzcustcat = gs_custcat-hostref = gs_custcat-customercatalog.
+      gs_custcat-website = gs_techsite-pr_website.
+      gs_custcat-salesorg = <soldto>-salesorg.
+      gs_custcat-distchnl = <soldto>-distchnl.
+      gs_custcat-division = <soldto>-division.
+      gs_custcat-soldto = <soldto>-soldto.
+      gs_custcat-catalogx = <katalog>-catalogx.
+
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+        EXPORTING
+          input  = <soldto>-soldto
+        IMPORTING
+          output = lv_kunnr.
+
+      READ TABLE gt_knvv INTO gs_knvv WITH KEY kunnr = lv_kunnr
+                                               vkorg = <soldto>-salesorg
+                                               vtweg = <soldto>-distchnl
+                                               spart = <soldto>-division.
+
+*      if <SOLDTO>-COUNTRY eq 'US' or <SOLDTO>-COUNTRY eq 'CA'.
+      CONCATENATE <soldto>-currency <soldto>-salesorg gs_knvv-pltyp
+           INTO gs_custcat-pricecode SEPARATED BY '+'.
+*      else.
+**-- retrieve KNVV details for Sold to customer
+*        clear: gs_knvv,lv_kunnr.
+*        CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+*          EXPORTING
+*            input         = <SOLDTO>-SOLDTO
+*          IMPORTING
+*            OUTPUT        = lv_kunnr.
+*        perform GET_KNVV_DETAILS using lv_kunnr
+*                                       <soldto>-salesorg
+*                                       <soldto>-distchnl
+*                                       <soldto>-division
+*                             changing  GS_KNVV.
+*        CONCATENATE <SOLDTO>-salesorg
+*                  <SOLDTO>-distchnl gs_knvv-pltyp <soldto>-currency
+*             INTO GS_CUSTCAT-PRICECODE SEPARATED BY '+'.
+*      ENDIF.
+      CONCATENATE <katalog>-dateeffective
+                  gc_timestart
+              INTO gs_custcat-dateeffective.
+      CONCATENATE <katalog>-dateexpiration
+                  gc_timefinish
+              INTO gs_custcat-dateexpiration.
+      gs_custcat-display = gc_on.
+*      IF lv_tabix = 1.
+*        gs_custcat-selected = gc_on.
+*      ELSE.
+      gs_custcat-selected = gc_off.
+*      ENDIF.   "LV_TABIX = 1
+      gs_custcat-dateinserted = gv_dateinserted.
+      READ TABLE gt_knb1 INTO gs_knb1 WITH KEY kunnr = lv_kunnr.
+      IF sy-subrc EQ 0.
+        gs_custcat-arterms = gs_knb1-zterm.
+      ENDIF.
+      APPEND gs_custcat TO gt_custcat.
+*---- FIELDS NOT MAPPED
+*      GS_CUSTCAT-ARTERMS = <SOLDTO>-ZTERM.
+*      GS_CUSTCAT-FREIGHTTERMS = space.
+*      GS_CUSTCAT-SHIPWINDOW = space.
+*      GS_CUSTCAT-AUTHORIZEPERCENT = space.
+*      GS_CUSTCAT-SETTLEPERCENT = space.
+*---- PREPARE PRICECODES LIST
+      CLEAR:  gs_pricodes.
+      gs_pricodes-vkorg = <soldto>-salesorg.
+      gs_pricodes-pricecode = gs_custcat-pricecode.
+      COLLECT gs_pricodes INTO gt_pricodes.
+    ENDLOOP.   " AT GT_SOLDTO assigning <SOLDTO>
+  ENDLOOP.   "AT GT_KATALOG ASSIGNING <KATALOG>
+  MODIFY ztxx_pr_custcat FROM TABLE gt_custcat.
+  IF sy-subrc = 0.
+    COMMIT WORK.
+  ELSE.
+*---- Records failed to be inserted
+    ROLLBACK WORK.
+    MESSAGE e100(zplumriver) WITH 'Customer_Catalog'.
+  ENDIF.
+*}   REPLACE
+
+* PREPARE PRICECODES LIST
+  LOOP AT gt_soldto ASSIGNING <soldto>.
+    CLEAR: lv_kunnr,gs_knvv.
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+      EXPORTING
+        input  = <soldto>-soldto
+      IMPORTING
+        output = lv_kunnr.
+
+    READ TABLE gt_knvv INTO gs_knvv WITH KEY kunnr = lv_kunnr
+                                             vkorg = <soldto>-salesorg
+                                             vtweg = <soldto>-distchnl
+                                             spart = <soldto>-division.
+    CONCATENATE <soldto>-currency
+*                <soldto>-country
+                <soldto>-salesorg
+                gs_knvv-pltyp
+           INTO gs_custcat-pricecode SEPARATED BY '+'.
+
+    CLEAR:  gs_pricodes.
+    gs_pricodes-vkorg = <soldto>-salesorg.
+*{   INSERT         DV2K907927                                        1
+    gs_pricodes-vtweg = <soldto>-vtweg.
+    gs_pricodes-spart = <soldto>-spart.
+*}   INSERT
+    gs_pricodes-pricecode = gs_custcat-pricecode.
+    COLLECT gs_pricodes INTO gt_pricodes.
+
+  ENDLOOP.   " AT GT_SOLDTO assigning <SOLDTO>
+* End of changes $1
+ENDFORM.                    " FILL_CUSTCAT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  FILL_PRICECODE
+*&---------------------------------------------------------------------*
+FORM fill_pricecode .
+* DESCRIPTION:  Fill Price_Code HDI table (ZTXX_PR_PRICECOD)
+
+* Local declaration
+  DATA:  lv_vkorg TYPE vkorg.
+
+* Process records
+  CLEAR:  gt_pricecode[].
+  CLEAR:  gv_seq,
+          gv_dateinserted.
+  CONCATENATE sy-datum
+              sy-uzeit
+          INTO gv_dateinserted.
+
+  LOOP AT gt_pricodes ASSIGNING <pricodes>.
+* Create Price Code table entry
+    CLEAR: gs_pricecode.
+*-- key fields
+    gs_pricecode-mandt = sy-mandt.
+    gs_pricecode-techsite = gs_techsite-website.
+    gs_pricecode-vkorg = <pricodes>-vkorg.
+*{   REPLACE        DV2K911713                                        6
+*\    GS_PRICECODE-VTWEG = gv_vtweg.
+*\    GS_PRICECODE-SPART = gv_spart.
+    gs_pricecode-vtweg = <pricodes>-vtweg.
+    gs_pricecode-spart = <pricodes>-spart.
+*}   REPLACE
+*    gs_pricecode-seq = gv_seq.
+**-- HDI Fields
+*    gs_pricecode-id = gv_seq.
+    gs_pricecode-zzpcode = <pricodes>-pricecode.
+    gs_pricecode-localeid = gc_localeid_en.
+    gs_pricecode-hostref = <pricodes>-pricecode.
+    gs_pricecode-pricecode = <pricodes>-pricecode.
+    gs_pricecode-website = gs_techsite-pr_website.
+    gs_pricecode-salesorg = <pricodes>-vkorg.
+*{   INSERT         DV2K907927                                        1
+    gs_pricecode-distchnl = <pricodes>-vtweg.
+    gs_pricecode-division = <pricodes>-spart.
+*}   INSERT
+    gs_pricecode-description = 'Wholesale'.
+    gs_pricecode-dateinserted = gv_dateinserted.
+    APPEND gs_pricecode TO gt_pricecode.
+  ENDLOOP.   "AT GT_PRICODES ASSIGNING <PRICODES>
+
+* Insert Price_Code records
+*{   DELETE         DV2K907927                                        2
+*\  perform DELETE_DB_ROWS  using gs_tablekey
+*\                                'ZTXX_PR_PRICECOD'
+*\                       changing gv_subrc.
+*\  if gv_subrc = 0.
+*}   DELETE
+*{   REPLACE        DV2K907927                                        4
+*\    INSERT ZTXX_PR_PRICECOD FROM TABLE GT_PRICECODE.
+  MODIFY ztxx_pr_pricecod FROM TABLE gt_pricecode.
+*}   REPLACE
+  IF sy-subrc = 0.
+    COMMIT WORK.
+  ELSE.
+*---- Records failed to be inserted
+    ROLLBACK WORK.
+    MESSAGE e100(zplumriver) WITH 'Price_Code'.
+  ENDIF.
+*{   DELETE         DV2K907927                                        3
+*\  ELSE.
+*\*-- RECORDS FAILED TO BE DELETED
+*\    MESSAGE E101(ZPLUMRIVER) WITH 'Price_Code'.
+*\  ENDIF.
+*}   DELETE
+
+ENDFORM.                    " FILL_PRICECODE
+*&---------------------------------------------------------------------*
+*&      Form  get_catalog_list
+*&---------------------------------------------------------------------*
+FORM get_catalog_list  CHANGING ch_subrc TYPE sysubrc.
+* DESCRIPTION:  Get Catalog list
+
+  SELECT * INTO TABLE gt_katalog
+      FROM ztxx_pr_katalog
+      WHERE techsite = gs_techsite-website    AND
+            catalogx IN s_catlog              AND
+            enabled = '1'.                         "active
+  IF sy-subrc = 0.
+    CLEAR:  ch_subrc.
+    SORT gt_katalog BY mandt techsite catalogx localeid.
+  ELSE.
+    ch_subrc = sy-subrc.
+  ENDIF.
+
+ENDFORM.                    " get_catalog_list
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_KNA1_DETAILS
+*&---------------------------------------------------------------------*
+FORM get_kna1_details  USING    us_kunnr  TYPE kunnr
+                       CHANGING chs_kna1  LIKE gs_kna1.
+* DESCRIPTION:  GET KNA1 RECORD INFORMATION
+
+  READ TABLE gth_kna1 INTO chs_kna1
+                      WITH TABLE KEY kunnr = us_kunnr.
+  IF sy-subrc <> 0.
+    CLEAR:  chs_kna1.
+  ENDIF.
+
+ENDFORM.                    " GET_KNA1_DETAILS
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_KNVV_DETAILS
+*&---------------------------------------------------------------------*
+FORM get_knvv_details  USING    us_kunnr  TYPE kunnr
+                                us_vkorg  TYPE vkorg
+                                us_vtweg  TYPE vtweg
+                                us_spart  TYPE spart
+                       CHANGING chs_knvv  LIKE gs_knvv.
+* DESCRIPTION:  GET KNVV RECORD INFORMATION
+
+  READ TABLE gt_knvv INTO chs_knvv
+                     WITH KEY kunnr = us_kunnr
+                              vkorg = us_vkorg
+                              vtweg = us_vtweg
+                              spart = us_spart
+                     BINARY SEARCH.
+  IF sy-subrc <> 0.
+    CLEAR:  chs_knvv.
+  ENDIF.
+
+ENDFORM.                    " GET_KNVV_DETAILS
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_KNKK_DETAILS
+*&---------------------------------------------------------------------*
+FORM get_knkk_details  USING    us_kunnr  TYPE kunnr
+                       CHANGING chs_knkk  LIKE gs_knkk.
+* DESCRIPTION:  GET KNKK RECORD INFORMATION
+
+  READ TABLE gt_knkk INTO chs_knkk
+                     WITH KEY kunnr = us_kunnr
+                     BINARY SEARCH.
+  IF sy-subrc <> 0.
+    CLEAR:  chs_knkk.
+  ENDIF.
+
+ENDFORM.                    " GET_KNKK_DETAILS
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_CUSTOMER_DETAILS
+*&---------------------------------------------------------------------*
+FORM get_customer_details USING    us_kunnr TYPE kunnr
+                          CHANGING ch_kna1 LIKE gs_kna1.
+* DESCRIPTION:  Get customer address
+
+*// Local Declaration
+  DATA:  lv_tabix(1)    TYPE n,                "table index
+         lx_street,                         "X: street found
+         lv_returnlines TYPE adrs-anzzl,
+         lt_adrtable    TYPE  szadr_printform_table.
+
+  DATA: BEGIN OF ls_adrc,
+          addrnumber TYPE adrc-addrnumber,
+          name1      TYPE adrc-name1,
+          name2      TYPE adrc-name2,
+          city1      TYPE adrc-city1,
+          post_code1 TYPE adrc-post_code1,
+          street     TYPE adrc-street,
+          str_suppl1 TYPE adrc-str_suppl1,
+          str_suppl2 TYPE adrc-str_suppl2,
+          str_suppl3 TYPE adrc-str_suppl3,
+          location   TYPE adrc-location,
+          country    TYPE adrc-country,
+          langu      TYPE adrc-langu,
+          region     TYPE adrc-region,
+          deflt_comm TYPE adrc-deflt_comm,   "Communication Method (Key)
+          tel_number TYPE adrc-tel_number,
+          tel_extens TYPE adrc-tel_extens,
+          fax_number TYPE adrc-fax_number,
+          fax_extens TYPE adrc-fax_extens,
+          flagcomm2  TYPE adrc-flagcomm2,
+          flagcomm3  TYPE adrc-flagcomm3,
+          flagcomm6  TYPE adrc-flagcomm6,
+          flagcomm12 TYPE adrc-flagcomm12,
+        END OF ls_adrc.
+
+* Email and URL
+  DATA:  lv_email TYPE adr6-smtp_addr,
+         lv_url   TYPE adr12-uri_addr.
+
+  FIELD-SYMBOLS:  <adr> LIKE LINE OF lt_adrtable.
+
+*// Begin processing
+  CLEAR:  ch_kna1.
+  READ TABLE gth_kna1 ASSIGNING <kna1>
+                      WITH TABLE KEY kunnr = us_kunnr.
+  IF sy-subrc = 0.
+    ch_kna1 = <kna1>.
+  ELSE.
+*-- get KNA1 details
+    SELECT SINGLE  kunnr adrnr aufsd
+                   ktokd loevm kdkg1 kdkg2
+                   kdkg3 kdkg4 kdkg5
+                   j_3astcu j_3adccu
+             FROM kna1 INTO ch_kna1
+             WHERE kunnr = us_kunnr.
+    IF sy-subrc = 0.
+*---- KNA1 record found, determine address details
+      CLEAR: lx_street,
+             lv_tabix,
+             lv_returnlines,
+             lt_adrtable[].
+*---- Read for print form of this customer address
+      CALL FUNCTION 'ADDRESS_INTO_PRINTFORM'
+        EXPORTING
+          address_type            = '1'
+          address_number          = ch_kna1-adrnr
+          number_of_lines         = 6
+*         STREET_HAS_PRIORITY     = ' '
+        IMPORTING
+          number_of_used_lines    = lv_returnlines
+*         ADDRESS_NOT_FOUND       =
+          address_printform_table = lt_adrtable.
+
+*---- remove table lines containing country and/or city/state/zip
+*---- (those details will be set from table ADRC later)
+      DELETE lt_adrtable WHERE line_type = 'A'  OR    "Title
+                               line_type = 'O'  OR    "city/state/zip
+                               line_type = 'L'.       "country
+
+      LOOP AT lt_adrtable ASSIGNING <adr>.
+        lv_tabix = sy-tabix.
+        IF lv_tabix > 4.
+          EXIT.
+        ELSE.
+          IF <adr>-line_type = 'S'.
+            lx_street = 'X'.
+          ENDIF.
+*------ map name/address fields
+          CASE lv_tabix.
+            WHEN '1'.
+              ch_kna1-name = <adr>-address_line.
+            WHEN '2'.
+              ch_kna1-address1 = <adr>-address_line.
+            WHEN '3'.
+              ch_kna1-address2 = <adr>-address_line.
+            WHEN '4'.
+              ch_kna1-address3 = <adr>-address_line.
+            WHEN OTHERS.
+          ENDCASE.
+        ENDIF.
+      ENDLOOP.   "AT LT_ADRTABLE assigning <ADR>
+      IF lx_street IS INITIAL.
+*---- street missing... need to find and set street.
+        READ TABLE lt_adrtable ASSIGNING <adr>
+                               WITH KEY line_type = 'S'.
+        IF sy-subrc = 0.
+          ch_kna1-address3 = <adr>-address_line.
+        ENDIF.   "sy-subrc = 0 [on read table lt_adrtable...]
+      ENDIF.   "lx_street is initial
+*-- Get rest of address details from ADRC
+      SELECT SINGLE  addrnumber name1 name2
+                     city1 post_code1 street
+                     str_suppl1 str_suppl2 str_suppl3
+                     location country langu
+                     region deflt_comm tel_number
+                     tel_extens fax_number fax_extens
+                     flagcomm2 flagcomm3 flagcomm6
+                     flagcomm12
+                FROM adrc INTO ls_adrc
+                WHERE addrnumber = ch_kna1-adrnr.
+      IF sy-subrc = 0.
+        ch_kna1-city = ls_adrc-city1.
+        ch_kna1-region = ls_adrc-region.
+        ch_kna1-postalcode = ls_adrc-post_code1.
+        ch_kna1-country = ls_adrc-country.
+*******
+*------ TELEPHONE NUMBER
+        ch_kna1-phone = ls_adrc-tel_number.
+        IF NOT ls_adrc-tel_extens IS INITIAL.
+          CONCATENATE  ch_kna1-phone
+                       ls_adrc-tel_extens
+                  INTO ch_kna1-phone SEPARATED BY ' x'.
+        ENDIF.   "NOT LS_ADRC-TEL_EXTENS IS INITIAL
+*------ FAX NUMBER
+        ch_kna1-fax = ls_adrc-fax_number.
+        IF NOT ls_adrc-fax_extens IS INITIAL.
+          CONCATENATE  ch_kna1-fax
+                       ls_adrc-fax_extens
+                  INTO ch_kna1-fax SEPARATED BY ' x'.
+        ENDIF.   "NOT LS_ADRC-FAX_EXTENS IS INITIAL
+*------ EMAIL
+        IF NOT ls_adrc-flagcomm6 IS INITIAL.
+          SELECT SINGLE  smtp_addr
+                    FROM adr6 INTO lv_email
+                    WHERE addrnumber = ls_adrc-addrnumber  AND
+                          persnumber = space               AND
+                          flgdefault = 'X'.
+          IF sy-subrc = 0.
+            ch_kna1-email = lv_email.
+          ENDIF.   "sy-subrc = 0  [ON SELECT SINGLE... from ADR6]
+        ENDIF.   "NOT LS_ADRC-FLAGCOMM6 IS INITIAL
+*------ URL Webpage
+        IF NOT ls_adrc-flagcomm12 IS INITIAL.
+          SELECT SINGLE  uri_addr
+                    FROM adr12 INTO lv_url
+                    WHERE addrnumber = ls_adrc-addrnumber  AND
+                          persnumber = space               AND
+                          flgdefault = 'X'                 AND
+                        ( uri_type = 'HPG'       OR      "HOMEPAGE
+                          uri_type = 'INT' ).            "INTRANET PAGE
+          IF sy-subrc = 0.
+            ch_kna1-url = lv_url.
+          ENDIF.   "sy-subrc = 0  [ON SELECT SINGLE... from ADR12]
+        ENDIF.   "NOT LS_ADRC-FLAGCOMM12 IS INITIAL
+*---- INSERT RECORD INTO GTH_KNA1
+        INSERT ch_kna1 INTO TABLE gth_kna1.
+      ENDIF.   "sy-subrc = 0 [ON SELECT SINGLE...FROM ADRC]
+    ELSE.
+**---- KNA1 record NOT found, issue error.
+*      MESSAGE e006(/afs/r1) WITH us_kunnr.
+    ENDIF.   "sy-subrc = 0  [on select single... from KNA1]
+  ENDIF.   "sy-subrc = 0 [on Read table GTH_KNA1]
+
+ENDFORM.                    " GET_CUSTOMER_DETAILS
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_CREDIT_DETAILS
+*&---------------------------------------------------------------------*
+FORM get_credit_details  USING    uss_knvv  LIKE gs_knvv
+                         CHANGING chs_knkk  LIKE gs_knkk
+                                  ch_creditlimit TYPE knkk-klimk
+                                  ch_creditavail TYPE knkk-klimk.
+* DESCRIPTION: Get Credit details.
+
+*// LOCAL DECLARATION
+  DATA:  lv_limit TYPE knkk-klimk,
+         lv_delta TYPE knkk-klimk,
+         lv_cmwae TYPE t014-waers.
+
+  DATA:  ls_knkk TYPE knkk.
+
+*// BEGIN PROCESSING
+  CLEAR:  chs_knkk,
+          ch_creditlimit,
+          ch_creditavail.
+
+  REFRESH:  gt_knkk.
+
+  SELECT  kunnr kkber klimk
+          ctlpc crblb
+      FROM knkk INTO TABLE gt_knkk
+      WHERE kunnr = uss_knvv-kunnr    AND
+            kkber IN s_kkber.
+  IF sy-subrc = 0.
+    LOOP AT gt_knkk ASSIGNING <knkk>.
+      CALL FUNCTION 'CREDIT_EXPOSURE'
+        EXPORTING
+          kkber          = <knkk>-kkber
+          kunnr          = <knkk>-kunnr
+*         DATE_CREDIT_EXPOSURE = '99991231'
+        IMPORTING
+          creditlimit    = lv_limit
+          delta_to_limit = lv_delta
+          e_knkk         = ls_knkk
+          cmwae          = lv_cmwae.
+      IF chs_knkk IS INITIAL.
+*------ AUTOMATICALLY MAP FIRST KNKK RECORD FROM GT_KNKK
+        PERFORM map_knkk_to_gs  USING ls_knkk
+                             CHANGING chs_knkk.
+      ELSE.
+*------ OVERWRITE CHS_KNKK RECORD IF CREDIT MANAGEMENT IS BLOCKED
+        IF chs_knkk-crblb IS INITIAL    AND
+           NOT ls_knkk-crblb IS INITIAL.
+          PERFORM map_knkk_to_gs  USING ls_knkk
+                               CHANGING chs_knkk.
+        ENDIF.   "CHS_KNKK-CRBLB IS INITIAL    AND
+      ENDIF.   "CHS_KNKK IS INITIAL
+*---- SET LIMITS AND REMAINING CREDIT AMOUNTS
+      IF lv_cmwae <> uss_knvv-waers.
+*------ CONVERT TO CUSTOMER'S CURRENCY
+        PERFORM convert_currency_amount USING lv_cmwae
+                                              uss_knvv-waers
+                                     CHANGING lv_limit.
+        PERFORM convert_currency_amount USING lv_cmwae
+                                              uss_knvv-waers
+                                     CHANGING lv_delta.
+      ENDIF.   "LV_CMWAE <> USS_KNVV-WAERS
+      ch_creditlimit = ch_creditlimit + lv_limit.
+      ch_creditavail = ch_creditavail + lv_delta.
+    ENDLOOP.   "AT GT_KNKK ASSIGNING <KNKK>
+  ENDIF.   "SY-SUBRC = 0  [ON SELECT... FROM KNKK]
+
+ENDFORM.                    " GET_CREDIT_DETAILS
+
+
+*&---------------------------------------------------------------------*
+*&      Form  CONVERT_CURRENCY_AMOUNT
+*&---------------------------------------------------------------------*
+FORM convert_currency_amount  USING    us_curr_from TYPE waers
+                                       us_curr_to  TYPE waers
+                              CHANGING ch_amount.
+* DESCRIPTION:  Convert currency
+
+*// Local Declaration
+  DATA:  lv_foreign_amount TYPE knkk-klimk,
+         lv_rate           TYPE tcurr-ukurs.
+
+*// Begin Processing
+  IF us_curr_from <> us_curr_to    AND
+     NOT us_curr_from IS INITIAL   AND
+     NOT us_curr_to IS INITIAL.
+    lv_foreign_amount = ch_amount.
+    CALL FUNCTION 'CONVERT_TO_LOCAL_CURRENCY'
+      EXPORTING
+        date             = sy-datum
+        foreign_amount   = lv_foreign_amount
+        foreign_currency = us_curr_from
+        local_currency   = us_curr_to
+      IMPORTING
+        exchange_rate    = lv_rate
+        local_amount     = ch_amount
+      EXCEPTIONS
+        no_rate_found    = 1
+        overflow         = 2
+        no_factors_found = 3
+        no_spread_found  = 4
+        derived_2_times  = 5
+        OTHERS           = 6.
+    IF sy-subrc <> 0.
+*      MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*              WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+    ENDIF.   "SY-SUBRC <> 0
+  ENDIF.   "US_CURR_FROM <> US_CURR_TO...
+
+ENDFORM.                    " CONVERT_CURRENCY_AMOUNT
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_KNVK_CONTACT
+*&---------------------------------------------------------------------*
+FORM get_knvk_contact  USING    us_kunnr TYPE kunnr
+                       CHANGING ch_contact LIKE gs_soldto-contact.
+* DESCRIPTION:  Get Customer contact name
+
+*// Local declaration
+  DATA: BEGIN OF ls_knvk,
+          parnr    TYPE knvk-parnr,
+          kunnr    TYPE knvk-kunnr,
+          namev    TYPE knvk-namev,
+          name1    TYPE knvk-name1,
+          titel_ap TYPE knvk-titel_ap,
+          loevm    TYPE knvk-loevm,
+        END OF ls_knvk.
+
+*// Begin processing
+  CLEAR:  ch_contact.
+  SELECT SINGLE  parnr kunnr namev
+                 name1 titel_ap loevm
+            FROM knvk INTO ls_knvk
+            WHERE kunnr = us_kunnr   AND
+                  loevm = space.     "not marked for deletion
+  IF sy-subrc = 0.
+    ch_contact = ls_knvk-namev.             "assign first name
+    IF NOT ls_knvk-name1 IS INITIAL   AND
+           ls_knvk-name1 <> ls_knvk-namev.
+      CONCATENATE ch_contact
+                  ls_knvk-name1
+             INTO ch_contact SEPARATED BY space. "assign first/last name
+    ENDIF.   "not ls_knvk-name1 is initial   AND
+  ENDIF.   "sy-subrc = 0
+
+ENDFORM.                    " GET_KNVK_CONTACT
+*&---------------------------------------------------------------------*
+*&      Form  GET_KNVP_PARTNER
+*&---------------------------------------------------------------------*
+FORM get_knvp_partner  USING    us_kunnr TYPE kunnr
+                                us_vkorg TYPE vkorg
+                                us_vtweg TYPE vtweg
+                                us_spart TYPE spart
+                                us_parvw TYPE knvp-parvw
+                       CHANGING ch_kunn2 TYPE knvp-kunn2.
+* Description:  Determine customer Partner
+
+  CLEAR:  ch_kunn2.
+* set customer partner, if exists
+  SELECT SINGLE kunn2
+      FROM knvp INTO ch_kunn2
+      WHERE kunnr = us_kunnr   AND
+            vkorg = us_vkorg   AND
+            vtweg = us_vtweg   AND
+            spart = us_spart   AND
+            parvw = us_parvw.
+
+ENDFORM.                    " GET_KNVP_PARTNER
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_KNVV_RECORD
+*&---------------------------------------------------------------------*
+FORM get_knvv_record  USING  us_kunnr  TYPE kunnr
+                             us_vkorg  TYPE vkorg
+                             us_vtweg  TYPE vtweg
+                             us_spart  TYPE spart
+                    CHANGING chs_knvv LIKE gs_knvv.
+* DESCRIPTION:  Get customer currency
+
+*// Local Declaraion
+  DATA:  lv_waers TYPE knvv-waers.
+
+*// Begin processing
+  CLEAR:  chs_knvv.
+  READ TABLE gt_knvv INTO chs_knvv
+                     WITH KEY kunnr = us_kunnr
+                              vkorg = us_vkorg
+                              vtweg = us_vtweg
+                              spart = us_spart
+                     BINARY SEARCH.
+  IF sy-subrc <> 0.
+*-- record not persisted in GT_KNVV, so read KNVV directly
+    SELECT SINGLE *
+             FROM knvv INTO CORRESPONDING FIELDS OF chs_knvv
+             WHERE  kunnr = us_kunnr   AND
+                    vkorg = us_vkorg   AND
+                    vtweg = us_vtweg   AND
+                    spart = us_spart.
+  ENDIF.   "sy-subrc = 0   [ON  Read table GT_KNVV...]
+
+ENDFORM.                    " GET_KNVV_RECORD
+
+*&---------------------------------------------------------------------*
+*&      Form  MAP_KNKK_TO_GS
+*&---------------------------------------------------------------------*
+FORM map_knkk_to_gs  USING    us_knkk  TYPE knkk
+                     CHANGING chs_knkk LIKE gs_knkk.
+* DESCRIPTION:  Map KNKK structure to GS_KNKK
+
+  chs_knkk-kunnr = us_knkk-kunnr.
+  chs_knkk-kkber = us_knkk-kkber.
+  chs_knkk-klimk = us_knkk-klimk.
+  chs_knkk-ctlpc = us_knkk-ctlpc.
+  chs_knkk-crblb = us_knkk-crblb.
+
+ENDFORM.                    " MAP_KNKK_TO_GS
+
+*&---------------------------------------------------------------------*
+*&      Form  TRANSFORM_ALPHA_OUT
+*&---------------------------------------------------------------------*
+FORM transform_alpha_out USING    us_source
+                         CHANGING ch_target.
+* DESCRIPTION:  apply function CONVERSION_EXIT_ALPHA_OUTPUT.
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+    EXPORTING
+      input  = us_source
+    IMPORTING
+      output = ch_target.
+
+ENDFORM.                    " TRANSFORM_ALPHA_OUT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_CUSTOMER_NAME
+*&---------------------------------------------------------------------*
+FORM get_customer_name  USING    us_kunnr TYPE kunnr
+                        CHANGING ch_name TYPE c.
+* DESCRIPTION: GET CUSTOMER NAME
+
+  DATA:  lv_name1 TYPE kna1-name1.
+
+  CLEAR:  ch_name.
+  SELECT SINGLE name1
+            FROM kna1 INTO lv_name1
+            WHERE kunnr = us_kunnr.
+  IF sy-subrc = 0.
+    ch_name = lv_name1.
+  ENDIF.
+
+ENDFORM.                    " GET_CUSTOMER_NAME
+
+*Text elements
+*----------------------------------------------------------
+* 001 General Selections
+* B00 Website Selection Criteria
+* B01 General Selections
+* B02 Credit Control Area
+* BKC Target Catalogs
+* BKD Special Operations
+* S01 Variant Status
+* T02 Check Customer Credit
+* T03 Credit Control Area
+* T04 Delimiter
+* T05 (Use ## to represent each trailing space)
+
+
+*Selection texts
+*----------------------------------------------------------
+* CH_VAR         Enabled
+* P_DLIMIT         Delimiter
+* P_TSITE         Technical Website Name
+* S_BRAN2         At Once
+* S_BRAN3         Prebook
+* S_BRAN4         PB/ATP
+* S_BRAN5         Closeout
+* S_CATLOG         Catalog
+* S_KATR5         Customer Tier
+* S_KDGRP         Customer group
+* S_KKBER         Credit Control Area
+* S_KUNNR         Sold To
+* S_SDCKY         Sold To Country
+* S_SPART         Division
+* S_SUBCH         Sub Channel
+* S_VKBUR         Sales Office
+* S_VKORG         Sales Org
+* S_VTWEG         Distribution Channel
+
+
+*Messages
+*----------------------------------------------------------
+*
+* Message class: 1E
+*293   Select a &1
+*
+* Message class: ZPLUMRIVER
+*007   Processing Completed.
+*011   Technical site &1 is not a valid entry.
+*100   No Update.  Insertion of &1 records failed.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740

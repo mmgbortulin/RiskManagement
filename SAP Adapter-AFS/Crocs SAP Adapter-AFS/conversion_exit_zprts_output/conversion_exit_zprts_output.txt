@@ -1,0 +1,65 @@
+FUNCTION CONVERSION_EXIT_ZPRTS_OUTPUT.
+*"----------------------------------------------------------------------
+*"*"Local interface:
+*"  IMPORTING
+*"     VALUE(INPUT)
+*"  EXPORTING
+*"     VALUE(OUTPUT)
+*"----------------------------------------------------------------------
+*** Local Declaration
+  DATA:  BEGIN OF LS_OUTPUT,
+           DATE(10),
+           SPACER(1),
+           TIME(8),
+         END OF LS_OUTPUT.
+
+  DATA:  BEGIN OF LS_TIMESTAMP,
+           DATE(8),
+           TIME(6),
+         END OF LS_TIMESTAMP.
+
+* Initialize structures and fields
+  clear: LS_OUTPUT,
+         LS_TIMESTAMP.
+
+* Check to see whether the Date portion contains only numerics
+  LS_TIMESTAMP-DATE = INPUT(8).
+  LS_TIMESTAMP-TIME = INPUT+8(6).
+  IF INPUT(8) co '0123456789'.
+    clear:  LS_OUTPUT,
+            LS_TIMESTAMP.
+*-- Date
+    LS_TIMESTAMP-DATE = INPUT(8).
+    concatenate LS_TIMESTAMP-DATE(4)
+                '-'
+                LS_TIMESTAMP-DATE+4(2)
+                '-'
+                LS_TIMESTAMP-DATE+6(2)
+            into LS_OUTPUT-DATE.
+*-- TIME
+    LS_TIMESTAMP-TIME = INPUT+8(6).
+    IF LS_TIMESTAMP-TIME IS INITIAL.
+*---- NO TIME PROVIDED... INPUT IS ONLY DATE, SO RETURN MIDNIGHT
+      LS_OUTPUT-TIME = '00:00:00'.
+      OUTPUT = LS_OUTPUT.
+    ELSEIF LS_TIMESTAMP-TIME CO '0123456789'.
+      concatenate LS_TIMESTAMP-TIME(2)
+                  ':'
+                  LS_TIMESTAMP-TIME+2(2)
+                  ':'
+                  LS_TIMESTAMP-TIME+4(2)
+              into LS_OUTPUT-TIME.
+      OUTPUT = LS_OUTPUT.
+    ELSE.
+*---- BAD FORMAT??  RETURN INPUT VALUE
+      OUTPUT = INPUT.
+    ENDIF.
+  ELSE.
+*-- NOT A TIMESTAMP VALUE??  RETURN INPUT VALUE
+    OUTPUT = INPUT.
+  ENDIF.
+
+ENDFUNCTION.
+
+----------------------------------------------------------------------------------
+Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2025. Sap Release 740
